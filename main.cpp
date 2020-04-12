@@ -74,29 +74,65 @@ int main(int argc, char * argv[])
 
     std::vector<uchar> word, words;
     std::vector<std::pair<size_t, size_t>> rank;
-    auto traverseTrie = [&] (const auto & traverseTrie, decltype((std::as_const(trie).front().children)) children) -> void
-    {
-        for (size_t index : children) {
-            if (index == 0) {
-                continue;
+
+    if ((true)) {
+        auto traverseTrie = [&] (const auto & traverseTrie, decltype((std::as_const(trie).front().children)) children) -> void
+        {
+            for (size_t index : children) {
+                if (index == 0) {
+                    continue;
+                }
+                const TrieNode & node = trie[index];
+                word.push_back(uchar(node.c));
+                if (node.count != 0) {
+                    rank.emplace_back(node.count, words.size());
+                    words.insert(words.cend(), std::cbegin(word), std::cend(word));
+                    words.push_back(uchar('\0'));
+                }
+                traverseTrie(traverseTrie, node.children);
+                word.pop_back();
             }
-            const TrieNode & node = trie[index];
-            word.push_back(uchar(node.c));
-            if (node.count != 0) {
-                rank.emplace_back(node.count, words.size());
+        };
+        traverseTrie(traverseTrie, trie.front().children);
+        assert(word.empty());
+        fprintf(stderr, "word count = %zu\n", rank.size());
+
+        timer.report("recover words from trie"); // 58 10
+
+        std::stable_sort(std::begin(rank), std::end(rank), [] (auto && l, auto && r) { return r.first < l.first; });
+    } else {
+        assert(index == 0);
+        for (const TrieNode & leaf : trie) {
+            if (leaf.count != 0) {
+                word.clear();
+                size_t parent = index;
+                do {
+                    const TrieNode & node = trie[parent];
+                    word.push_back(uchar(node.c));
+                    parent = node.parent;
+                } while (parent != 0);
+                rank.emplace_back(leaf.count, words.size());
+                std::reverse(std::begin(word), std::end(word));
                 words.insert(words.cend(), std::cbegin(word), std::cend(word));
                 words.push_back(uchar('\0'));
             }
-            traverseTrie(traverseTrie, node.children);
-            word.pop_back();
+            ++index;
         }
-    };
-    traverseTrie(traverseTrie, trie.front().children);
-    assert(word.empty());
 
-    timer.report("recover words from trie");
+        timer.report("recover words from trie"); // 37 60
 
-    std::stable_sort(std::begin(rank), std::end(rank), [] (auto && l, auto && r) { return r.first < l.first; });
+        auto less = [words = words.data(), wordsEnd = &words.back() + 1] (auto && l, auto && r)
+        {
+            if (r.first < l.first) {
+                return true;
+            } else if (l.first < r.first) {
+                return false;
+            } else {
+                return std::lexicographical_compare(words + l.second, wordsEnd, words + r.second, wordsEnd);
+            }
+        };
+        std::stable_sort(std::begin(rank), std::end(rank), less);
+    }
 
     timer.report("rank words");
 
