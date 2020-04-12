@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <memory>
 #include <unordered_map>
-#include <string_view>
 
 #include <cassert>
 #include <cstring>
@@ -13,12 +12,23 @@
 #include <cstdio>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
-#include <immintrin.h>
+# include <immintrin.h>
 #elif defined(__clang__) || defined(__GNUG__)
-#include <x86intrin.h>
-#ifndef __forceinline
-#define __forceinline __attribute__((always_inline))
+# include <x86intrin.h>
 #endif
+
+#if defined(_MSC_VER)
+# ifdef _WIN64
+#  define bswap(x) _byteswap_uint64(x)
+# else
+#  define bswap(x) _byteswap_ulong(x)
+# endif
+#else
+# ifdef __x86_64__
+#  define bswap(x) __builtin_bswap64(x)
+# else
+#  define bswap(x) __builtin_bswap32(x)
+# endif
 #endif
 
 using uchar = unsigned char;
@@ -39,7 +49,7 @@ public :
     InputStream(const InputStream &) = delete;
     InputStream & operator = (const InputStream &) = delete;
 
-    __forceinline bool fetch()
+    bool fetch()
     {
         if (it != end) {
             return true;
@@ -82,7 +92,7 @@ public :
         return true;
     }
 
-    __forceinline int getChar()
+    int getChar()
     {
         if (!fetch()) {
             return EOF;
@@ -97,14 +107,16 @@ private :
     uchar * end = it;
 };
 
-static constexpr int AlphabetSize = 'z' - 'a' + 1;
-
-struct Trie
+struct TrieNode
 {
     size_t c = 0;
     size_t parent = 0;
     size_t count = 0;
-    std::unordered_map<size_t, size_t> children;
+#if 1
+    std::unordered_map<size_t, size_t> children = {};
+#else
+    std::vector<std::pair<size_t, size_t>> children = {};
+#endif
 };
 
 #include <chrono>
@@ -125,7 +137,7 @@ struct Timer
         return duration_cast<nanoseconds>(stop - (absolute ? start : std::exchange(timePoint, stop))).count() * 1E-9;
     }
 
-    void report(const char * description, bool absolute = false) { fprintf(stderr, "time (%s) = %lf\n", description, dt(absolute)); }
+    void report(const char * description, bool absolute = false) { fprintf(stderr, "time (%s) = %.3lf\n", description, dt(absolute)); }
 
     ~Timer() { report("total", true); }
 };
@@ -157,59 +169,84 @@ int main(int argc, char * argv[])
 
     InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
 
-    std::vector<uchar> words;
-    using range_type = std::pair<size_t, size_t>;
-    auto crc32cHash = [&words] (range_type range) -> size_t
-    {
-        auto data = words.data();
+    // preskip leading whitespaces
+    int c = inputStream.getChar();
+    while (c == '\0') {
+        c = inputStream.getChar();
+    }
 
-        auto result = ~uint32_t(0);
-#ifdef __x86_64__
-        while (range.first + sizeof(uint64_t) <= range.second) {
-            result = uint32_t(_mm_crc32_u64(uint64_t(result), *reinterpret_cast<const uint64_t *>(data + range.first)));
-            range.first += sizeof(uint64_t);
+    std::vector<TrieNode> trie(1);
+    size_t index = 0;
+    while (c > '\0') {
+        auto chunk = size_t(c);
+        c = inputStream.getChar();
+        for (size_t offset = 1; (c > '\0') && (offset < sizeof(size_t)); ++offset) {
+            chunk |= size_t(c) << (offset * size_t(std::numeric_limits<uchar>::digits));
+            c = inputStream.getChar();
         }
-#endif
-        while (range.first + sizeof(uint32_t) <= range.second) {
-            result = _mm_crc32_u32(result, *reinterpret_cast<const uint32_t *>(data + range.first));
-            range.first += sizeof(uint32_t);
-        }
-        while (range.first < range.second) {
-            result = _mm_crc32_u8(result, data[range.first]);
-            ++range.first;
-        }
-        return ~size_t(result);
-    };
-    std::unordered_map<range_type, size_t, decltype((crc32cHash))> counts{0, crc32cHash};
-    size_t start = 0, stop = 0;
-    for (;;) {
-        int c = inputStream.getChar();
-        if (c > '\0') {
-            words.push_back(uchar(c));
-            ++stop;
+        chunk = bswap(chunk);
+        auto & children = trie[index].children;
+#if 1
+        size_t & child = children[chunk];
+        if (child == 0) {
+            child = trie.size();
+            trie.push_back({chunk, std::exchange(index, child)});
         } else {
-            if (start != stop) {
-                auto [position, inserted] = counts.emplace(std::make_pair(start, stop), 1);
-                if (!inserted) {
-                    ++position->second;
-                }
+            index = child;
+        }
+#else
+        auto it = std::partition_point(std::begin(children), std::end(children), [&chunk] (auto && child) { return child.first < chunk; });
+        if ((it == std::end(children)) || (it->first != chunk)) {
+            it = children.emplace(it, chunk, trie.size());
+            trie.push_back({chunk, index});
+        }
+        index = it->second;
+#endif
+        if (!(c > '\0')) {
+            if (index != 0) {
+                ++trie[index].count;
+                index = 0;
             }
-            if (c < 0) {
-                break;
+            while (c == '\0') {
+                c = inputStream.getChar();
             }
-            start = stop;
         }
     }
-    fprintf(stderr, "size = %zu\n", counts.size());
+    fprintf(stderr, "trie size = %zu\n", trie.size());
 
     timer.report("build counting trie from input");
 
-#if 0
+    std::vector<size_t> word, words;
     std::vector<std::pair<size_t, size_t>> rank;
-    while (!counts.empty()) {
-        auto node = counts.extract(counts.cbegin());
+    auto traverseTrie = [&] (const auto & traverseTrie, decltype((std::as_const(trie).front().children)) children) -> void
+    {
+#if 1
+        std::vector<std::pair<size_t, size_t>> orderedChildren{std::cbegin(children), std::cend(children)};
+        std::sort(std::begin(orderedChildren), std::end(orderedChildren));
+        for (auto [chunk, index] : orderedChildren) {
+#else
+        for (auto [chunk, index] : children) {
+#endif
+            if (index == 0) {
+                continue;
+            }
+            chunk = bswap(chunk);
+            word.push_back(chunk);
+            const TrieNode & node = trie[index];
+            if (node.count != 0) {
+                rank.emplace_back(node.count, words.size());
+                words.insert(words.cend(), std::cbegin(word), std::cend(word));
+                words.push_back(0);
+            }
+            if (!node.children.empty()) {
+                traverseTrie(traverseTrie, node.children);
+            }
+            word.pop_back();
+        }
+    };
+    traverseTrie(traverseTrie, trie.front().children);
+    assert(word.empty());
 
-    }
     timer.report("recover words from trie");
 
     std::stable_sort(std::begin(rank), std::end(rank), [] (auto && l, auto && r) { return r.first < l.first; });
@@ -217,10 +254,9 @@ int main(int argc, char * argv[])
     timer.report("rank words");
 
     for (const auto & [count, word] : rank) {
-        fprintf(outputFile.get(), "%zu %s\n", count, words.c_str() + word);
+        fprintf(outputFile.get(), "%zu %s\n", count, reinterpret_cast<const char *>(words.data() + word));
     }
 
     timer.report("output");
-#endif
     return EXIT_SUCCESS;
 }
