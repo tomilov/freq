@@ -13,14 +13,11 @@
 
 static constexpr int AlphabetSize = 'z' - 'a' + 1;
 
-struct alignas(64) TrieNode
+struct TrieNode
 {
     size_t count = 0;
-    uchar s[(sizeof(void *) == 4) ? 20 : 16];
     size_t children[AlphabetSize] = {};
 };
-
-static_assert(sizeof(TrieNode) % 64 == 0, "!");
 
 int main(int argc, char * argv[])
 {
@@ -48,46 +45,22 @@ int main(int argc, char * argv[])
     InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
 
     std::vector<TrieNode> trie(1);
-    size_t trieIndex = 0, charIndex = 0;
+    size_t index = 0;
     for (;;) {
         int c = inputStream.getChar();
         if (c > '\0') {
-            TrieNode & node = trie[trieIndex];
-            if ((charIndex == sizeof node.s - 1) || (node.s[charIndex] == '\0')) {
-                size_t & child = node.children[c - 'a'];
-                if (child == 0) {
-                    child = trie.size();
-                    trieIndex = child;
-                    trie.emplace_back();
-                } else {
-                    trieIndex = child;
-                }
+            size_t & child = trie[index].children[c - 'a'];
+            if (child == 0) {
+                child = trie.size();
+                index = child;
+                trie.emplace_back();
             } else {
-                if (node.s[charIndex] == uchar(c)) { // cache friendly
-                    ++charIndex;
-                    continue;
-                } else { // split
-                    trie.reserve(trie.size() + 2);
-                    TrieNode & srcNode = trie[trieIndex];
-                    auto src = srcNode.s + charIndex;
-                    trieIndex = trie.size();
-                    srcNode.children[*src - 'a'] = trieIndex++;
-                    TrieNode & tail = trie.emplace_back();
-                    tail.count = std::exchange(srcNode.count, 0);
-                    auto dst = tail.s;
-                    do {
-                        *dst++ = *src;
-                    } while (*++src != '\0');
-                    srcNode.children[c - 'a'] = trieIndex;
-                    trie.emplace_back();
-                    srcNode.s[charIndex] = '\0';
-                }
+                index = child;
             }
-            charIndex = 0;
         } else {
-            if (trieIndex != 0) {
-                ++trie[trieIndex].count;
-                trieIndex = 0;
+            if (index != 0) {
+                ++trie[index].count;
+                index = 0;
             }
             if (c < 0) {
                 break;
@@ -109,19 +82,12 @@ int main(int argc, char * argv[])
             if (index != 0) {
                 const TrieNode & node = trie[index];
                 word.push_back(uchar('a' + c));
-                auto src = node.s;
-                while (*src != '\0') {
-                    word.push_back(*src++);
-                }
                 if (node.count != 0) {
                     rank.emplace_back(node.count, words.size());
                     words.insert(words.cend(), std::cbegin(word), std::cend(word));
                     words.push_back(uchar('\0'));
                 }
                 traverseTrie(traverseTrie, node.children);
-                while (src != node.s) {
-                    --src;
-                }
                 word.pop_back();
             }
             ++c;
