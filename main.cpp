@@ -13,13 +13,14 @@
 
 static constexpr int AlphabetSize = 'z' - 'a' + 1;
 
-struct TrieNode
+struct alignas(64) TrieNode
 {
-    int c = -1;
-    size_t parent = 0;
     size_t count = 0;
+    uchar s[(sizeof(void *) == 4) ? 20 : 16];
     size_t children[AlphabetSize] = {};
 };
+
+static_assert(sizeof(TrieNode) % 64 == 0, "!");
 
 int main(int argc, char * argv[])
 {
@@ -47,22 +48,46 @@ int main(int argc, char * argv[])
     InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
 
     std::vector<TrieNode> trie(1);
-    trie.reserve(501266);
-    size_t index = 0;
+    size_t trieIndex = 0, charIndex = 0;
     for (;;) {
         int c = inputStream.getChar();
         if (c > '\0') {
-            size_t & child = trie[index].children[c - 'a'];
-            if (child == 0) {
-                child = trie.size();
-                trie.push_back({c, std::exchange(index, child)});
+            TrieNode & node = trie[trieIndex];
+            if ((charIndex == sizeof node.s - 1) || (node.s[charIndex] == '\0')) {
+                size_t & child = node.children[c - 'a'];
+                if (child == 0) {
+                    child = trie.size();
+                    trieIndex = child;
+                    trie.emplace_back();
+                } else {
+                    trieIndex = child;
+                }
             } else {
-                index = child;
+                if (node.s[charIndex] == uchar(c)) { // cache friendly
+                    ++charIndex;
+                    continue;
+                } else { // split
+                    trie.reserve(trie.size() + 2);
+                    TrieNode & srcNode = trie[trieIndex];
+                    auto src = srcNode.s + charIndex;
+                    trieIndex = trie.size();
+                    srcNode.children[*src - 'a'] = trieIndex++;
+                    TrieNode & tail = trie.emplace_back();
+                    tail.count = std::exchange(srcNode.count, 0);
+                    auto dst = tail.s;
+                    do {
+                        *dst++ = *src;
+                    } while (*++src != '\0');
+                    srcNode.children[c - 'a'] = trieIndex;
+                    trie.emplace_back();
+                    srcNode.s[charIndex] = '\0';
+                }
             }
+            charIndex = 0;
         } else {
-            if (index != 0) {
-                ++trie[index].count;
-                index = 0;
+            if (trieIndex != 0) {
+                ++trie[trieIndex].count;
+                trieIndex = 0;
             }
             if (c < 0) {
                 break;
@@ -74,26 +99,32 @@ int main(int argc, char * argv[])
     timer.report("build counting trie from input");
 
     std::vector<std::pair<size_t, size_t>> rank;
-    rank.reserve(213637);
     std::vector<uchar> words;
-    words.reserve(1883055);
 
     std::vector<uchar> word;
     auto traverseTrie = [&] (const auto & traverseTrie, decltype((std::as_const(trie).front().children)) children) -> void
     {
+        int c = 0;
         for (size_t index : children) {
-            if (index == 0) {
-                continue;
+            if (index != 0) {
+                const TrieNode & node = trie[index];
+                word.push_back(uchar('a' + c));
+                auto src = node.s;
+                while (*src != '\0') {
+                    word.push_back(*src++);
+                }
+                if (node.count != 0) {
+                    rank.emplace_back(node.count, words.size());
+                    words.insert(words.cend(), std::cbegin(word), std::cend(word));
+                    words.push_back(uchar('\0'));
+                }
+                traverseTrie(traverseTrie, node.children);
+                while (src != node.s) {
+                    --src;
+                }
+                word.pop_back();
             }
-            const TrieNode & node = trie[index];
-            word.push_back(uchar(node.c));
-            if (node.count != 0) {
-                rank.emplace_back(node.count, words.size());
-                words.insert(words.cend(), std::cbegin(word), std::cend(word));
-                words.push_back(uchar('\0'));
-            }
-            traverseTrie(traverseTrie, node.children);
-            word.pop_back();
+            ++c;
         }
     };
     traverseTrie(traverseTrie, trie.front().children);
