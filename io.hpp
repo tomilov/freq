@@ -30,6 +30,7 @@ public :
         : inputFile{inputFile}
     {
         assert(inputFile);
+        fetch();
     }
 
     // non-moveable/non-copyable due to `it` and `end` points to member's data
@@ -42,8 +43,8 @@ public :
         if (size == 0) {
             return false;
         }
-        it = buffer;
-        end = it + size;
+        first = buffer;
+        last = first + size;
 
         constexpr int flags = _SIDD_UBYTE_OPS | _SIDD_CMP_RANGES | _SIDD_MASKED_POSITIVE_POLARITY | _SIDD_UNIT_MASK;
 
@@ -75,22 +76,22 @@ public :
         return true;
     }
 
-    __forceinline int getChar()
+    const uchar * begin()
     {
-        if (it == end) {
-            if (!fetch()) {
-                return EOF;
-            }
-        }
-        return *it++;
+        return first;
+    }
+
+    const uchar * end()
+    {
+        return last;
     }
 
 private :
     std::FILE * inputFile;
 
     alignas(__m128i) uchar buffer[bufferSize];
-    uchar * it = buffer;
-    uchar * end = it;
+    uchar * first = buffer;
+    uchar * last = first;
 };
 
 template<size_t bufferSize = sizeof(__m128i) * 8192>

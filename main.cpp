@@ -6,6 +6,8 @@
 #include <vector>
 #include <iterator>
 #include <algorithm>
+#include <tuple>
+#include <unordered_map>
 
 #include <cstring>
 #include <cstdlib>
@@ -15,11 +17,27 @@ static constexpr auto AlphabetSize = 'z' - 'a' + 1;
 
 using size_type = uint32_t;
 
-struct TrieNode
+inline uint32_t crc32c(const uchar * begin, const uchar * end)
 {
-    size_type count = 0;
-    size_type children[AlphabetSize] = {};
+    auto result = ~uint32_t(0);
+#ifdef __x86_64__
+    while (begin + sizeof(uint64_t) <= end) {
+        result = uint32_t(_mm_crc32_u64(uint64_t(result), *reinterpret_cast<const uint64_t *>(begin)));
+        begin += sizeof(uint64_t);
+    }
+#endif
+    while (begin + sizeof(uint32_t) <= end) {
+        result = _mm_crc32_u32(result, *reinterpret_cast<const uint32_t *>(begin));
+        begin += sizeof(uint32_t);
+    }
+    while (begin < end) {
+        result = _mm_crc32_u8(result, *begin);
+        ++begin;
+    }
+    return ~result;
 };
+
+static std::tuple<uint32_t, int32_t/*, int32_t*/> hashes[100'000'000] = {};
 
 int main(int argc, char * argv[])
 {
@@ -44,66 +62,52 @@ int main(int argc, char * argv[])
 
     timer.report("open files");
 
-    InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
+    auto inputStream = std::make_unique<InputStream<400'000'000>>(inputFile.get());
 
-    std::vector<TrieNode> trie(1);
-    size_type index = 0;
-    for (;;) {
-        int c = inputStream.getChar();
-        if (c > '\0') {
-            size_type & child = trie[index].children[c - 'a'];
-            if (child == 0) {
-                child = size_type(trie.size());
-                index = child;
-                trie.emplace_back();
-            } else {
-                index = child;
+    timer.report("read input");
+
+    size_type h = 0;
+    uint32_t hash = ~uint32_t(0);
+    const auto first = inputStream->begin();
+    const auto last = inputStream->end();
+    auto it = first;
+    auto start = it;
+    while (it != last) {
+        if (*it == '\0') {
+            if (start != it) {
+                hashes[h++] = {hash, int32_t(start - first)/*, int32_t(it - start)*/};
+                hash = ~uint32_t(0);
+                start = it;
             }
         } else {
-            if (index != 0) {
-                ++trie[index].count;
-                index = 0;
+            if (*start == '\0') {
+                start = it;
             }
-            if (c < 0) {
-                break;
-            }
+            //hash =_mm_crc32_u8(hash, *it);
         }
+        ++it;
     }
-    fprintf(stderr, "trie size = %zu\n", trie.size());
 
-    timer.report("build counting trie from input");
+    timer.report("1");
+    //fprintf(stderr, "%zu %zu %zu %zu", n4, n8, n16, n); 37797872 17370574 3631578 1257
+
+    auto less = [first] (auto && l, auto && r)
+    {
+        if (std::get<0>(l) < std::get<0>(r)) {
+            return false;
+        } else if (std::get<0>(r) < std::get<0>(l)) {
+            return true;
+        } else {
+            return std::strcmp(reinterpret_cast<const char *>(first + std::get<1>(l)), reinterpret_cast<const char *>(first + std::get<1>(r))) < 0;
+        }
+    };
+    std::sort(hashes + 0, hashes + h, less);
+
+    timer.report("2");
 
     std::vector<std::pair<size_type, size_type>> rank;
     std::vector<uchar> words;
-
-    std::vector<uchar> word;
-    auto traverseTrie = [&] (const auto & traverseTrie, decltype((std::as_const(trie).front().children)) children) -> void
-    {
-        int c = 0;
-        for (size_type index : children) {
-            if (index != 0) {
-                const TrieNode & node = trie[index];
-                word.push_back(uchar('a' + c));
-                if (node.count != 0) {
-                    rank.emplace_back(size_type(node.count), size_type(words.size()));
-                    words.insert(words.cend(), std::cbegin(word), std::cend(word));
-                    words.push_back(uchar('\0'));
-                }
-                traverseTrie(traverseTrie, node.children);
-                word.pop_back();
-            }
-            ++c;
-        }
-    };
-    traverseTrie(traverseTrie, trie.front().children);
-    assert(word.empty());
-    fprintf(stderr, "word count = %zu, length = %zu\n", rank.size(), words.size());
-
-    timer.report("recover words from trie");
-
     std::stable_sort(std::begin(rank), std::end(rank), [] (auto && l, auto && r) { return r.first < l.first; });
-
-    timer.report("rank words");
 
     OutputStream<> outputStream{outputFile.get()};
 
@@ -128,5 +132,5 @@ int main(int argc, char * argv[])
 
     timer.report("output");
 
-    return EXIT_SUCCESS;
+    return EXIT_SUCCESS; // 250156885 58801281 4.254276
 }

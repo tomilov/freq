@@ -19,7 +19,7 @@ struct Timer
         return duration_cast<nanoseconds>(stop - (absolute ? start : std::exchange(timePoint, stop))).count() * 1E-9;
     }
 
-    void report(const char * description, bool absolute = false) { fprintf(stderr, "time (%s) = %.3lf\n", description, dt(absolute)); }
+    void report(const char * description, bool absolute = false) { std::fprintf(stderr, "time (%s) = %.3lf\n", description, dt(absolute)); std::fflush(stderr); }
 
     ~Timer() { report("total", true); }
 };
