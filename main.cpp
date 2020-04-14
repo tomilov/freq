@@ -11,6 +11,15 @@
 #include <cstdlib>
 #include <cstdio>
 
+namespace gperf
+{
+namespace
+{
+// ./freq pg.txt out.txt && cut -d' ' -f2 out.txt | head -1000 >top.gperf && ./gperf -m50 -G -rL C++ top.gperf >gperf.hpp
+#include "gperf.hpp"
+} // static namespace
+} // namespace gperf
+
 static constexpr int AlphabetSize = 'z' - 'a' + 1;
 
 struct TrieNode
@@ -18,6 +27,8 @@ struct TrieNode
     size_t count = 0;
     size_t children[AlphabetSize] = {};
 };
+
+static size_t topCount[MAX_HASH_VALUE + 1] = {};
 
 int main(int argc, char * argv[])
 {
@@ -44,20 +55,44 @@ int main(int argc, char * argv[])
 
     InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
 
+    char str[100];
+    auto ss = str;
     std::vector<TrieNode> trie(1);
     size_t index = 0;
     for (;;) {
         int c = inputStream.getChar();
         if (c > '\0') {
-            size_t & child = trie[index].children[c - 'a'];
-            if (child == 0) {
-                child = trie.size();
-                index = child;
-                trie.emplace_back();
-            } else {
-                index = child;
-            }
+            *ss++ = char(c);
         } else {
+            *ss = '\0';
+            int hashValue = 0;
+            {
+                using namespace  gperf;
+                if (ss <= str + MAX_WORD_LENGTH && ss >= str + MIN_WORD_LENGTH) {
+                    int key = Perfect_Hash::hash(str, ss - str);
+                    if (key <= MAX_HASH_VALUE && key >= MIN_HASH_VALUE) {
+                        const char * s = wordlist[key];
+                        if ((*str == *s) && (strcmp(str + 1, s + 1) == 0)) {
+                            hashValue = key;
+                        }
+                    }
+                }
+            }
+            if (hashValue < MIN_HASH_VALUE) {
+                for (auto sss = str; sss != ss; ++sss) {
+                    size_t & child = trie[index].children[*sss - 'a'];
+                    if (child == 0) {
+                        child = trie.size();
+                        index = child;
+                        trie.emplace_back();
+                    } else {
+                        index = child;
+                    }
+                }
+            } else {
+                ++topCount[hashValue];
+            }
+            ss = str;
             if (index != 0) {
                 ++trie[index].count;
                 index = 0;
