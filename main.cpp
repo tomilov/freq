@@ -11,12 +11,14 @@
 #include <cstdlib>
 #include <cstdio>
 
-static constexpr int AlphabetSize = 'z' - 'a' + 1;
+static constexpr auto AlphabetSize = 'z' - 'a' + 1;
+
+using size_type = uint32_t;
 
 struct TrieNode
 {
-    size_t count = 0;
-    size_t children[AlphabetSize] = {};
+    size_type count = 0;
+    size_type children[AlphabetSize] = {};
 };
 
 int main(int argc, char * argv[])
@@ -45,13 +47,13 @@ int main(int argc, char * argv[])
     InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
 
     std::vector<TrieNode> trie(1);
-    size_t index = 0;
+    size_type index = 0;
     for (;;) {
         int c = inputStream.getChar();
         if (c > '\0') {
-            size_t & child = trie[index].children[c - 'a'];
+            size_type & child = trie[index].children[c - 'a'];
             if (child == 0) {
-                child = trie.size();
+                child = size_type(trie.size());
                 index = child;
                 trie.emplace_back();
             } else {
@@ -71,19 +73,19 @@ int main(int argc, char * argv[])
 
     timer.report("build counting trie from input");
 
-    std::vector<std::pair<size_t, size_t>> rank;
+    std::vector<std::pair<size_type, size_type>> rank;
     std::vector<uchar> words;
 
     std::vector<uchar> word;
     auto traverseTrie = [&] (const auto & traverseTrie, decltype((std::as_const(trie).front().children)) children) -> void
     {
         int c = 0;
-        for (size_t index : children) {
+        for (size_type index : children) {
             if (index != 0) {
                 const TrieNode & node = trie[index];
                 word.push_back(uchar('a' + c));
                 if (node.count != 0) {
-                    rank.emplace_back(node.count, words.size());
+                    rank.emplace_back(size_type(node.count), size_type(words.size()));
                     words.insert(words.cend(), std::cbegin(word), std::cend(word));
                     words.push_back(uchar('\0'));
                 }
