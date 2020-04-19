@@ -6,20 +6,29 @@
 #include <vector>
 #include <iterator>
 #include <algorithm>
+#include <array>
+#include <limits>
 
 #include <cstring>
+#include <cstdint>
 #include <cstdlib>
 #include <cstdio>
 
 static constexpr auto AlphabetSize = 'z' - 'a' + 1;
+static constexpr uint16_t MaxWordLength = 100;
 
-using size_type = uint32_t;
-
+template<typename size_type>
 struct TrieNode
 {
-    size_type count = 0;
+    size_t count = 0;
     size_type children[AlphabetSize] = {};
 };
+
+static_assert(sizeof(TrieNode<uint16_t>) <= 64, "!");
+static_assert(sizeof(TrieNode<uint32_t>) <= 2 * 64, "!");
+
+using SmallTrie = std::array<TrieNode<uint16_t>, std::numeric_limits<uint16_t>::max()>;
+using BigTrie = std::vector<TrieNode<uint32_t>>;
 
 int main(int argc, char * argv[])
 {
@@ -46,46 +55,73 @@ int main(int argc, char * argv[])
 
     InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
 
-    std::vector<TrieNode> trie(1);
-    size_type index = 0;
-    for (;;) {
-        int c = inputStream.getChar();
-        if (c > '\0') {
-            size_type & child = trie[index].children[c - 'a'];
-            if (child == 0) {
-                child = size_type(trie.size());
+    std::vector<SmallTrie> tries(1);
+    {
+        SmallTrie * trie = tries.data();
+        uint16_t trieSize = 0, index = 0;
+        for (;;) {
+            int c = inputStream.getChar();
+            if (c > '\0') {
+                auto & child = (*trie)[index].children[c - 'a'];
+                if (child == 0) {
+                    child = ++trieSize;
+                }
                 index = child;
-                trie.emplace_back();
             } else {
-                index = child;
-            }
-        } else {
-            if (index != 0) {
-                ++trie[index].count;
-                index = 0;
-            }
-            if (c < 0) {
-                break;
+                if (index != 0) {
+                    ++(*trie)[index].count;
+                    index = 0;
+                    if (trieSize + MaxWordLength >= (*trie).size()) {
+                        trie = &tries.emplace_back();
+                        trieSize = 0;
+                        index = 0;
+                    }
+                }
+                if (c < 0) {
+                    break;
+                }
             }
         }
+        fprintf(stderr, "tries size = %zu\n", tries.size());
     }
-    fprintf(stderr, "trie size = %zu\n", trie.size());
 
     timer.report("build counting trie from input");
 
-    std::vector<std::pair<size_type, size_type>> rank;
+    BigTrie trie(1);
+    for (const auto & smallTrie : tries) {
+        auto traverseTries = [&] (const auto & traverseTries, const auto & children, uint32_t dstIndex) -> void
+        {
+            int c = 0;
+            for (auto srcChild : children) {
+                if (srcChild != 0) {
+                    auto & dstChild = trie[dstIndex].children[c];
+                    if (dstChild == 0) {
+                        dstChild = uint32_t(trie.size());
+                        trie.emplace_back();
+                    }
+                    traverseTries(traverseTries, smallTrie[srcChild].children, trie[dstIndex].children[c]);
+                }
+                ++c;
+            }
+        };
+        traverseTries(traverseTries, smallTrie.front().children, 0);
+    }
+
+    timer.report("merge small tries into big trie");
+
+    std::vector<std::pair<uint32_t, uint32_t>> rank;
     std::vector<uchar> words;
 
     std::vector<uchar> word;
     auto traverseTrie = [&] (const auto & traverseTrie, decltype((std::as_const(trie).front().children)) children) -> void
     {
         int c = 0;
-        for (size_type index : children) {
+        for (auto index : children) {
             if (index != 0) {
-                const TrieNode & node = trie[index];
+                const auto & node = trie[index];
                 word.push_back(uchar('a' + c));
                 if (node.count != 0) {
-                    rank.emplace_back(size_type(node.count), size_type(words.size()));
+                    rank.emplace_back(uint32_t(node.count), uint32_t(words.size()));
                     words.insert(words.cend(), std::cbegin(word), std::cend(word));
                     words.push_back(uchar('\0'));
                 }
