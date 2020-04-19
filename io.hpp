@@ -47,10 +47,10 @@ public :
 
         constexpr int flags = _SIDD_UBYTE_OPS | _SIDD_CMP_RANGES | _SIDD_MASKED_POSITIVE_POLARITY | _SIDD_UNIT_MASK;
 
-        alignas(__m128i) uchar deltas[sizeof(__m128i)];
+        alignas(__m128i) uchar d[sizeof(__m128i)];
         static_assert('A' < 'a', "!");
-        std::fill(std::begin(deltas), std::end(deltas), 'a' - 'A');
-        __m128i delta = _mm_load_si128(reinterpret_cast<const __m128i *>(deltas));
+        std::fill(std::begin(d), std::end(d), 'a' - 'A');
+        __m128i delta = _mm_load_si128(reinterpret_cast<const __m128i *>(d));
 
         alignas(__m128i) uchar u[sizeof(__m128i)] = "AZ";
         __m128i uppercase = _mm_load_si128(reinterpret_cast<const __m128i *>(u));
@@ -61,16 +61,11 @@ public :
         auto data = reinterpret_cast<__m128i *>(buffer);
         const auto dataEnd = data + (size + sizeof *data - 1) / sizeof *data;
         for (; data != dataEnd; ++data) {
-#ifdef _MSC_VER
-            _mm_prefetch(reinterpret_cast<const char *>(data + 24), _MM_HINT_T0);
-#else
-            _mm_prefetch(data + 24, _MM_HINT_T0);
-#endif
-            __m128i str = _mm_load_si128(data);
+            __m128i str = _mm_stream_load_si128(data);
             __m128i mask = _mm_cmpistrm(uppercase, str, flags);
             str = _mm_adds_epu8(_mm_and_si128(mask, delta), str);
             mask = _mm_cmpistrm(lowercase, str, flags);
-            _mm_store_si128(data, _mm_and_si128(mask, str));
+            _mm_stream_si128(data, _mm_and_si128(mask, str));
         }
         return true;
     }

@@ -11,9 +11,9 @@
 #include <cstdlib>
 #include <cstdio>
 
-static constexpr auto AlphabetSize = 'z' - 'a' + 1;
-
 using size_type = uint32_t;
+
+static constexpr auto AlphabetSize = 'z' - 'a' + 1;
 
 struct TrieNode
 {
@@ -45,6 +45,8 @@ int main(int argc, char * argv[])
     timer.report("open files");
 
     InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
+
+    timer.report("create input stream");
 
     std::vector<TrieNode> trie(1);
     size_type index = 0;
