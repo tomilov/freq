@@ -24,10 +24,8 @@ struct TrieNode
 struct HashNode
 {
     uint32_t hash0 = 0;
-    uint32_t hash1 = 0;
-    size_type count = 0;
     const uchar * wordBeg = nullptr;
-    const uchar * wordEnd = nullptr;
+    size_type count = 0;
 };
 
 static HashNode hashMap[size_t(1) << 24] = {};
@@ -73,37 +71,32 @@ int main(int argc, char * argv[])
             if (wordBeg == end) {
                 break;
             }
-            auto hash0 = ~uint32_t(0);
-            auto hash1 = ~uint32_t(1);
+            auto hash0 = ~uint32_t(5);
             auto wordEnd = wordBeg;
             while (*wordEnd != '\0') {
                 hash0 = _mm_crc32_u8(hash0, *wordEnd);
-                hash1 = _mm_crc32_u8(hash1, *wordEnd);
                 if (++wordEnd == end) {
                     break;
                 }
             }
 
             auto mapElement = hashMap + (hash0 % std::size(hashMap));
-            if (mapElement->count == 0) {
-                mapElement->hash0 = hash0;
-                mapElement->hash0 = hash1;
-                mapElement->wordBeg = wordBeg;
-                mapElement->wordEnd = wordEnd;
-            } else {
-                while ((mapElement->hash0 != hash0) || (mapElement->hash1 != hash1)/* || !std::equal(mapElement->wordBeg, mapElement->wordEnd, wordBeg, wordEnd)*/) {
+            if (std::distance(wordBeg, wordEnd) <= 6) {
+                while ((mapElement->count != 0) && (mapElement->hash0 != hash0)) {
                     if (++mapElement == std::end(hashMap)) {
                         mapElement = std::begin(hashMap);
                     }
-                    if (mapElement->count == 0) {
-                        mapElement->hash0 = hash0;
-                        mapElement->hash1 = hash1;
-                        mapElement->wordBeg = wordBeg;
-                        mapElement->wordEnd = wordEnd;
-                        break;
+                }
+            } else {
+                while ((mapElement->count != 0) && ((mapElement->hash0 != hash0) || !std::equal(wordBeg, wordEnd, mapElement->wordBeg))) {
+                    if (++mapElement == std::end(hashMap)) {
+                        mapElement = std::begin(hashMap);
                     }
                 }
             }
+            assert(!mapElement->wordBeg || std::equal(wordBeg, wordEnd, mapElement->wordBeg));
+            mapElement->hash0 = hash0;
+            mapElement->wordBeg = wordBeg;
             ++mapElement->count;
 
             wordBeg = wordEnd;

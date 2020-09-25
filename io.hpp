@@ -99,12 +99,12 @@ public :
         return true;
     }
 
-    auto begin()
+    auto begin() const
     {
         return buffer + 0;
     }
 
-    auto end()
+    auto end() const
     {
         return buffer + size;
     }
