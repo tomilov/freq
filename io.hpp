@@ -24,12 +24,12 @@ template<size_t bufferSize = sizeof(__m128i) * 8192>
 class InputStream
 {
     static_assert((bufferSize % sizeof(__m128i)) == 0, "!");
-
 public :
     InputStream(std::FILE * inputFile)
         : inputFile{inputFile}
     {
         assert(inputFile);
+        fetch();
     }
 
     // non-moveable/non-copyable due to `it` and `end` points to member's data
@@ -38,12 +38,10 @@ public :
 
     bool fetch()
     {
-        size_t size = std::fread(buffer, sizeof *buffer, sizeof buffer, inputFile);
+        size = std::fread(buffer, sizeof *buffer, sizeof buffer, inputFile);
         if (size == 0) {
             return false;
         }
-        it = buffer;
-        end = it + size;
 
         constexpr int flags = _SIDD_UBYTE_OPS | _SIDD_CMP_RANGES | _SIDD_MASKED_POSITIVE_POLARITY | _SIDD_UNIT_MASK;
 
@@ -59,7 +57,26 @@ public :
         __m128i lowercase = _mm_load_si128(reinterpret_cast<const __m128i *>(l));
 
         auto data = reinterpret_cast<__m128i *>(buffer);
-        const auto dataEnd = data + (size + sizeof *data - 1) / sizeof *data;
+
+        auto unalignedHead = alignof(__m128i) - reinterpret_cast<ptrdiff_t>(&buffer) % alignof(__m128i);
+        if (unalignedHead != 0) {
+            for (auto it = buffer; it != buffer + unalignedHead; ++it) {
+                if ((*it >= 'A') && (*it <= 'Z')) {
+                    *it += d[0];
+                } else if ((*it < 'a') || (*it > 'z')) {
+                    *it = '\0';
+                }
+            }
+
+            data = reinterpret_cast<__m128i *>(buffer + unalignedHead);
+            if (unalignedHead <= size) {
+                size -= unalignedHead;
+            } else {
+                size = 0;
+            }
+        }
+
+        const auto dataEnd = data + size / sizeof *data;
         for (; data != dataEnd; ++data) {
             __m128i str = _mm_stream_load_si128(data);
             __m128i mask = _mm_cmpistrm(uppercase, str, flags);
@@ -67,25 +84,36 @@ public :
             mask = _mm_cmpistrm(lowercase, str, flags);
             _mm_stream_si128(data, _mm_and_si128(mask, str));
         }
+
+        auto unalignedTail = size % sizeof *data;
+        if (unalignedTail != 0) {
+            auto it = buffer + unalignedHead + size - unalignedTail;
+            do {
+                if ((*it >= 'A') && (*it <= 'Z')) {
+                    *it += d[0];
+                } else if ((*it < 'a') || (*it > 'z')) {
+                    *it = '\0';
+                }
+            } while (++it != buffer + unalignedHead + size);
+        }
         return true;
     }
 
-    __forceinline int getChar()
+    auto begin()
     {
-        if (it == end) {
-            if (!fetch()) {
-                return EOF;
-            }
-        }
-        return *it++;
+        return buffer + 0;
+    }
+
+    auto end()
+    {
+        return buffer + size;
     }
 
 private :
     std::FILE * inputFile;
 
-    alignas(__m128i) uchar buffer[bufferSize];
-    uchar * it = buffer;
-    uchar * end = it;
+    uchar buffer[bufferSize];
+    size_t size = 0;
 };
 
 template<size_t bufferSize = sizeof(__m128i) * 8192>
@@ -177,7 +205,7 @@ public :
 private :
     std::FILE * outputFile;
 
-    alignas(__m128i) uchar buffer[bufferSize];
+    uchar buffer[bufferSize];
     uchar * it = buffer;
     uchar * end = it;
 };

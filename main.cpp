@@ -21,13 +21,16 @@ struct TrieNode
     size_type children[AlphabetSize] = {};
 };
 
-struct alignas(sizeof(uint32_t) + sizeof(size_type)) HashNode
+struct HashNode
 {
-    uint32_t hashElement = 0;
+    uint32_t hash0 = 0;
+    uint32_t hash1 = 0;
     size_type count = 0;
+    const uchar * wordBeg = nullptr;
+    const uchar * wordEnd = nullptr;
 };
 
-static HashNode hashMap[10000000] = {};
+static HashNode hashMap[size_t(1) << 24] = {};
 
 int main(int argc, char * argv[])
 {
@@ -52,78 +55,66 @@ int main(int argc, char * argv[])
 
     timer.report("open files");
 
-    InputStream<> inputStream{inputFile.get()}; // InputStream::buffer lies on the stack
+    constexpr auto WholeInputSize = size_t(512) * 1024 * 1024;
+    auto inputStream = std::make_unique<InputStream<WholeInputSize>>(inputFile.get());
 
     timer.report("create input stream");
 
-    uint32_t hash = ~uint32_t(0);
-    std::vector<uchar> words;
-    words.resize(5000000);
-    auto wordBeg = std::data(words), wordEnd = wordBeg;
-    auto wordsEnd = std::data(words) + std::size(words);
-    size_t counters[8] = {};
-    for (;;) {
-        //++counters[0];
-        int c = inputStream.getChar();
-        if (c > '\0') {
-            //++counters[1];
-            *wordEnd++ = uchar(c);
-            hash = _mm_crc32_u8(hash, uchar(c));/*
-            if (wordEnd == wordsEnd) {
-                //++counters[2];
-                auto distance = std::distance(std::data(words), wordEnd);
-                auto length = std::distance(wordBeg, wordEnd);
-                words.resize(words.size() * 2);
-                wordEnd = std::next(std::data(words), distance);
-                wordBeg = std::next(wordEnd, length);
-                wordsEnd = std::data(words) + std::size(words);
-            }*/
-        } else {
-            //++counters[3];
-            auto & mapElement = hashMap[hash % std::size(hashMap)];
-            if (mapElement.count == 0) {
-                //++counters[4];
-                mapElement.hashElement = hash;
-                mapElement.count = 1;
-                *wordEnd++ = '\0';/*
-                if (wordEnd == wordsEnd) {
-                    //++counters[5];
-                    auto distance = std::distance(std::data(words), wordEnd);
-                    words.resize(words.size() * 2);
-                    wordEnd = std::next(std::data(words), distance);
-                    wordsEnd = std::data(words) + std::size(words);
-                }*/
-                wordBeg = wordEnd;
-            } else /*if (mapElement.hashElement == hash)*/ {
-                //++counters[6];
-                ++mapElement.count;
-                wordEnd = wordBeg;
-            }/* else {
-                //++counters[7];
-                ++mapElement.count;
-                wordEnd = wordBeg;
-            }*/
-            hash = ~uint32_t(0);
-            if (c < 0) {
+    const auto beg = inputStream->begin();
+    const auto end = inputStream->end();
+    if ((true)) {
+        auto wordBeg = beg;
+        while (wordBeg != end) {
+            while (*wordBeg == '\0') {
+                if (++wordBeg == end) {
+                    break;
+                }
+            }
+            if (wordBeg == end) {
                 break;
             }
+            auto hash0 = ~uint32_t(0);
+            auto hash1 = ~uint32_t(1);
+            auto wordEnd = wordBeg;
+            while (*wordEnd != '\0') {
+                hash0 = _mm_crc32_u8(hash0, *wordEnd);
+                hash1 = _mm_crc32_u8(hash1, *wordEnd);
+                if (++wordEnd == end) {
+                    break;
+                }
+            }
+
+            auto mapElement = hashMap + (hash0 % std::size(hashMap));
+            if (mapElement->count == 0) {
+                mapElement->hash0 = hash0;
+                mapElement->hash0 = hash1;
+                mapElement->wordBeg = wordBeg;
+                mapElement->wordEnd = wordEnd;
+            } else {
+                while ((mapElement->hash0 != hash0) || (mapElement->hash1 != hash1)/* || !std::equal(mapElement->wordBeg, mapElement->wordEnd, wordBeg, wordEnd)*/) {
+                    if (++mapElement == std::end(hashMap)) {
+                        mapElement = std::begin(hashMap);
+                    }
+                    if (mapElement->count == 0) {
+                        mapElement->hash0 = hash0;
+                        mapElement->hash1 = hash1;
+                        mapElement->wordBeg = wordBeg;
+                        mapElement->wordEnd = wordEnd;
+                        break;
+                    }
+                }
+            }
+            ++mapElement->count;
+
+            wordBeg = wordEnd;
         }
-    }
-    size_t i = 0;
-    for (size_t counter : counters) {
-        fprintf(stderr, "%zu: %zu %lf\n", i++, counter, counter / double(counters[0]));
-    }
-
-    timer.report("build counting hashmap from input");
-
-    if ((false))
-    {
+        timer.report("build counting hashmap from input");
+    } else {
         std::vector<TrieNode> trie(1);
         size_type index = 0;
-        for (;;) {
-            int c = inputStream.getChar();
-            if (c > '\0') {
-                size_type & child = trie[index].children[c - 'a'];
+        for (auto it = beg; it != end; ++it) {
+            if (*it != '\0') {
+                size_type & child = trie[index].children[*it - 'a'];
                 if (child == 0) {
                     child = size_type(trie.size());
                     index = child;
@@ -135,9 +126,6 @@ int main(int argc, char * argv[])
                 if (index != 0) {
                     ++trie[index].count;
                     index = 0;
-                }
-                if (c < 0) {
-                    break;
                 }
             }
         }
