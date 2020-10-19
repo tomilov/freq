@@ -50,22 +50,42 @@ public :
         alignas(__m128i) uchar d[sizeof(__m128i)];
         static_assert('A' < 'a', "!");
         std::fill(std::begin(d), std::end(d), 'a' - 'A');
-        __m128i delta = _mm_load_si128(reinterpret_cast<const __m128i *>(d));
+        const __m128i delta = _mm_load_si128(reinterpret_cast<const __m128i *>(d));
 
         alignas(__m128i) uchar u[sizeof(__m128i)] = "AZ";
-        __m128i uppercase = _mm_load_si128(reinterpret_cast<const __m128i *>(u));
+        const __m128i uppercase = _mm_load_si128(reinterpret_cast<const __m128i *>(u));
 
         alignas(__m128i) uchar l[sizeof(__m128i)] = "az";
-        __m128i lowercase = _mm_load_si128(reinterpret_cast<const __m128i *>(l));
+        const __m128i lowercase = _mm_load_si128(reinterpret_cast<const __m128i *>(l));
 
         auto data = reinterpret_cast<__m128i *>(buffer);
         const auto dataEnd = data + (size + sizeof *data - 1) / sizeof *data;
-        for (; data != dataEnd; ++data) {
-            __m128i str = _mm_stream_load_si128(data);
-            __m128i mask = _mm_cmpistrm(uppercase, str, flags);
-            str = _mm_adds_epu8(_mm_and_si128(mask, delta), str);
-            mask = _mm_cmpistrm(lowercase, str, flags);
-            _mm_stream_si128(data, _mm_and_si128(mask, str));
+        for (; data < dataEnd; data += 4) {
+            //_mm_prefetch(data + 4 * 16, _MM_HINT_*); // slows down
+
+            __m128i str0 = _mm_stream_load_si128(data + 0);
+            __m128i mask0 = _mm_cmpistrm(uppercase, str0, flags);
+            str0 = _mm_adds_epu8(_mm_and_si128(mask0, delta), str0);
+            mask0 = _mm_cmpistrm(lowercase, str0, flags);
+            _mm_stream_si128(data + 0, _mm_and_si128(mask0, str0));
+
+            __m128i str1 = _mm_stream_load_si128(data + 1);
+            __m128i mask1 = _mm_cmpistrm(uppercase, str1, flags);
+            str1 = _mm_adds_epu8(_mm_and_si128(mask1, delta), str1);
+            mask1 = _mm_cmpistrm(lowercase, str1, flags);
+            _mm_stream_si128(data + 1, _mm_and_si128(mask1, str1));
+
+            __m128i str2 = _mm_stream_load_si128(data + 2);
+            __m128i mask2 = _mm_cmpistrm(uppercase, str2, flags);
+            str2 = _mm_adds_epu8(_mm_and_si128(mask2, delta), str2);
+            mask2 = _mm_cmpistrm(lowercase, str2, flags);
+            _mm_stream_si128(data + 2, _mm_and_si128(mask2, str2));
+
+            __m128i str3 = _mm_stream_load_si128(data + 3);
+            __m128i mask3 = _mm_cmpistrm(uppercase, str3, flags);
+            str3 = _mm_adds_epu8(_mm_and_si128(mask3, delta), str3);
+            mask3 = _mm_cmpistrm(lowercase, str3, flags);
+            _mm_stream_si128(data + 3, _mm_and_si128(mask3, str3));
         }
         return true;
     }
@@ -88,7 +108,7 @@ private :
     uchar * end = it;
 };
 
-template<size_t bufferSize = sizeof(__m128i) * 8192>
+template<size_t bufferSize = 131072>
 class OutputStream
 {
 public :
@@ -177,7 +197,7 @@ public :
 private :
     std::FILE * outputFile;
 
-    alignas(__m128i) uchar buffer[bufferSize];
+    uchar buffer[bufferSize];
     uchar * it = buffer;
     uchar * end = it;
 };
