@@ -20,10 +20,10 @@
 
 using uchar = unsigned char;
 
-template<size_t bufferSize = sizeof(__m128i) * 8192>
+template<size_t bufferSize = sizeof(__m512i) * 8192>
 class InputStream
 {
-    static_assert((bufferSize % sizeof(__m128i)) == 0, "!");
+    static_assert((bufferSize % sizeof(__m512i)) == 0, "!");
 
 public :
     InputStream(std::FILE * inputFile)
@@ -45,47 +45,23 @@ public :
         it = buffer;
         end = it + size;
 
-        constexpr int flags = _SIDD_UBYTE_OPS | _SIDD_CMP_RANGES | _SIDD_MASKED_POSITIVE_POLARITY | _SIDD_UNIT_MASK;
-
-        alignas(__m128i) uchar d[sizeof(__m128i)];
+        alignas(__m512i) uchar d[sizeof(__m512i)];
         static_assert('A' < 'a', "!");
         std::fill(std::begin(d), std::end(d), 'a' - 'A');
-        const __m128i delta = _mm_load_si128(reinterpret_cast<const __m128i *>(d));
+        const __m512i delta = _mm512_load_si512(reinterpret_cast<const __m512i *>(d));
 
-        alignas(__m128i) uchar u[sizeof(__m128i)] = "AZ";
-        const __m128i uppercase = _mm_load_si128(reinterpret_cast<const __m128i *>(u));
+        const __m512i ll = _mm512_set1_epi8('a');
+        const __m512i lh = _mm512_set1_epi8('z');
+        const __m512i hl = _mm512_set1_epi8('A');
+        const __m512i hh = _mm512_set1_epi8('Z');
 
-        alignas(__m128i) uchar l[sizeof(__m128i)] = "az";
-        const __m128i lowercase = _mm_load_si128(reinterpret_cast<const __m128i *>(l));
-
-        auto data = reinterpret_cast<__m128i *>(buffer);
+        auto data = reinterpret_cast<__m512i *>(buffer);
         const auto dataEnd = data + (size + sizeof *data - 1) / sizeof *data;
-        for (; data < dataEnd; data += 4) {
-            //_mm_prefetch(data + 4 * 16, _MM_HINT_*); // slows down
-
-            __m128i str0 = _mm_stream_load_si128(data + 0);
-            __m128i mask0 = _mm_cmpistrm(uppercase, str0, flags);
-            str0 = _mm_adds_epu8(_mm_and_si128(mask0, delta), str0);
-            mask0 = _mm_cmpistrm(lowercase, str0, flags);
-            _mm_stream_si128(data + 0, _mm_and_si128(mask0, str0));
-
-            __m128i str1 = _mm_stream_load_si128(data + 1);
-            __m128i mask1 = _mm_cmpistrm(uppercase, str1, flags);
-            str1 = _mm_adds_epu8(_mm_and_si128(mask1, delta), str1);
-            mask1 = _mm_cmpistrm(lowercase, str1, flags);
-            _mm_stream_si128(data + 1, _mm_and_si128(mask1, str1));
-
-            __m128i str2 = _mm_stream_load_si128(data + 2);
-            __m128i mask2 = _mm_cmpistrm(uppercase, str2, flags);
-            str2 = _mm_adds_epu8(_mm_and_si128(mask2, delta), str2);
-            mask2 = _mm_cmpistrm(lowercase, str2, flags);
-            _mm_stream_si128(data + 2, _mm_and_si128(mask2, str2));
-
-            __m128i str3 = _mm_stream_load_si128(data + 3);
-            __m128i mask3 = _mm_cmpistrm(uppercase, str3, flags);
-            str3 = _mm_adds_epu8(_mm_and_si128(mask3, delta), str3);
-            mask3 = _mm_cmpistrm(lowercase, str3, flags);
-            _mm_stream_si128(data + 3, _mm_and_si128(mask3, str3));
+        for (; data != dataEnd; ++data) {
+            __m512i str = _mm512_stream_load_si512(data);
+            auto lcase = _kand_mask64(_mm512_cmpge_epu8_mask(str, ll), _mm512_cmple_epu8_mask(str, lh));
+            auto ucase = _kand_mask64(_mm512_cmpge_epu8_mask(str, hl), _mm512_cmple_epu8_mask(str, hh));
+            _mm512_stream_si512(data, _mm512_mask_add_epi8(_mm512_maskz_mov_epi8(lcase, str), ucase, str, delta));
         }
         return true;
     }
@@ -103,7 +79,7 @@ public :
 private :
     std::FILE * inputFile;
 
-    alignas(__m128i) uchar buffer[bufferSize];
+    alignas(__m512i) uchar buffer[bufferSize];
     uchar * it = buffer;
     uchar * end = it;
 };
