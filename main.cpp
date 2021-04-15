@@ -1,20 +1,18 @@
 #include "io.hpp"
 #include "timer.hpp"
 
-#include <utility>
-#include <memory>
-#include <vector>
-#include <iterator>
 #include <algorithm>
-
-#include <unordered_map>
-#include <unordered_set>
-#include <iostream>
+#include <iterator>
+#include <memory>
 #include <string_view>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+#include <vector>
 
-#include <cstring>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 # include <immintrin.h>
@@ -128,26 +126,21 @@ int main(int argc, char * argv[])
     {
         uint32_t checksum = kInitialChecksum;
         uint8_t len = 0;
-        for (uint32_t d = 0; d < size; d += sizeof(__m128i)) {
-            __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(input + d));
-            __m128i mask = _mm_cmplt_epi8(str, _mm_set1_epi8('a'));
+        for (uint32_t i = 0; i < size; i += sizeof(__m128i)) {
+            __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(input + i));
             static_assert('A' < 'a');
-            str = _mm_add_epi8(_mm_and_si128(mask, _mm_set1_epi8('a' - 'A')), str);
-            mask = _mm_or_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_cmpgt_epi8(str, _mm_set1_epi8('z')));
-
-            //_mm_stream_si128(reinterpret_cast<__m128i *>(input + d), _mm_andnot_si128(mask, str));
-
-            int m = _mm_movemask_epi8(mask);
-#define BYTE(bit)                                                               \
-            if (UNLIKELY(m & (1 << bit))) {                                     \
-                if (len > 0) {                                                  \
-                    incCounter(checksum, d + bit, len);                         \
-                    len = 0;                                                    \
-                    checksum = kInitialChecksum;                                \
-                }                                                               \
-            } else {                                                            \
-                ++len;                                                          \
-                checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(str, bit));  \
+            __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
+            int mask = _mm_movemask_epi8(_mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z'))));
+#define BYTE(offset)                                                                    \
+            if (UNLIKELY(mask & (1 << offset))) {                                       \
+                if (len > 0) {                                                          \
+                    incCounter(checksum, i + offset, len);                              \
+                    len = 0;                                                            \
+                    checksum = kInitialChecksum;                                        \
+                }                                                                       \
+            } else {                                                                    \
+                ++len;                                                                  \
+                checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
             }
             BYTE(0);
             BYTE(1);
@@ -172,48 +165,6 @@ int main(int argc, char * argv[])
         }
     }
     timer.report("filter all the input");
-
-    if ((false)) {
-        std::unordered_map<uint32_t, std::unordered_map<std::string_view, size_t>> hashes;
-
-        const auto end = input + size;
-        auto lo = std::find(input, end, '\0');
-        ptrdiff_t s = 0;
-        ptrdiff_t w = std::distance(input, lo);
-        while (lo != end) {
-            auto hi = std::find_if_not(lo, end, [](char c) { return c == '\0'; });
-            s = std::max(s, std::distance(lo, hi));
-            lo = std::find(hi, end, '\0');
-            uint32_t hash = kInitialChecksum;
-            for (auto c = hi; c != lo; ++c) {
-                hash = _mm_crc32_u8(hash, *c);
-            }
-            ++hashes[hash/* & ((1u << hashTableOrder) - 1u)*/][{hi, lo}];
-            w = std::max(w, std::distance(hi, lo));
-        }
-        fprintf(stderr, "whitespaces %zi ; word length %zi\n", s, w);
-
-        size_t wc = 0;
-        size_t n = 0;
-        size_t collision = 0;
-        for (const auto & [hash, set] : hashes) {
-            (void)hash;
-            collision = std::max(collision, set.size());
-            if (set.size() > 1) {
-                ++n;
-            }
-            for (const auto & [word, count] : set) {
-                if (set.size() > 1) {
-                    //std::cout << word << ", ";
-                }
-                wc = std::max(wc, count);
-            }
-            if (set.size() > 1) {
-                //std::cout << std::endl;
-            }
-        }
-        fprintf(stderr, "collision = %zu %zu %zu\n", collision, n, wc);
-    }
 
     std::vector<std::pair<uint32_t, std::string_view>> rank;
     rank.reserve(std::extent_v<decltype(words)> * std::extent_v<decltype(words), 1>);
