@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <string_view>
 #include <tuple>
@@ -30,6 +31,7 @@
 namespace
 {
 constexpr size_t kHardwareConstructiveInterferenceSize = 64;
+
 alignas(sizeof(__m128i)) char input[1u << 29];
 
 constexpr uint32_t kInitialChecksum = 8;
@@ -49,15 +51,16 @@ struct alignas(kHardwareConstructiveInterferenceSize) Chunk
         1u << 15,
         1u << 15,
     };
-    uint32_t count[10] = {};
+    uint32_t count[std::extent_v<decltype(checksumHigh)>] = {};
 };
 #pragma pack(pop)
 static_assert(sizeof(Chunk) == kHardwareConstructiveInterferenceSize);
 
-constexpr size_t hashTableOrder = 17;
-static_assert(hashTableOrder > 16);
+constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit for default value (i.e. 1u << 15)
 Chunk hashTable[1u << hashTableOrder];
-uint32_t words[1u << hashTableOrder][10] = {};
+char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
+auto o = output + 1; // words[i] == 0 only for unused hashes
+uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::checksumHigh)>] = {};
 
 inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
 {
@@ -65,26 +68,24 @@ inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
     Chunk & chunk = hashTable[checksumLow];
     uint16_t checksumHigh = checksum >> hashTableOrder;
     int mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(checksumHigh)));
-    mask |= ((chunk.checksumHigh[8] == checksumHigh) ? (0b11u << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == checksumHigh) ? (0b11u << (9 * 2)) : 0);
+    mask |= ((chunk.checksumHigh[8] == checksumHigh) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == checksumHigh) ? (0b11 << (9 * 2)) : 0);
     int index;
     if (UNLIKELY(mask == 0)) {
         mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(1u << 15)));
-        mask |= ((chunk.checksumHigh[8] == 1u << 15) ? (0b11u << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == 1u << 15) ? (0b11u << (9 * 2)) : 0);
+        mask |= ((chunk.checksumHigh[8] == (1 << 15)) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == (1u << 15)) ? (0b11 << (9 * 2)) : 0);
         assert(mask != 0); // more then 10 collisions by checksumLow
         index = _bit_scan_forward(mask) / 2;
         chunk.checksumHigh[index] = checksumHigh;
-        words[checksumLow][index] = wordEnd - len;
+        words[checksumLow][index] = std::distance(output, o);
         for (auto i = wordEnd - len; i < wordEnd; ++i) {
-            if (UNLIKELY(input[i] < 'a')) {
-                input[i] += 'a' - 'A';
-            }
+            *o++ = input[i] + (UNLIKELY(input[i] < 'a') ? ('a' - 'A') : 0);
         }
-        input[wordEnd] = '\0';
+        *o++ = '\0';
     } else {
         assert(_popcnt32(mask) == 2);
         index = _bit_scan_forward(mask) / 2;
     }
-    assert(index < 10);
+    assert(index < std::extent_v<decltype(chunk.count)>);
     ++chunk.count[index];
 }
 
@@ -164,7 +165,7 @@ int main(int argc, char * argv[])
             incCounter(checksum, size, len);
         }
     }
-    timer.report("filter all the input");
+    timer.report("filter input");
 
     std::vector<std::pair<uint32_t, std::string_view>> rank;
     rank.reserve(std::extent_v<decltype(words)> * std::extent_v<decltype(words), 1>);
@@ -174,13 +175,14 @@ int main(int argc, char * argv[])
             uint32_t index = 0;
             for (uint32_t word : w) {
                 if (LIKELY(word)) {
-                    rank.emplace_back(hashTable[checksumLow].count[index], input + word);
+                    rank.emplace_back(hashTable[checksumLow].count[index], output + word);
                 }
                 ++index;
             }
             ++checksumLow;
         }
     }
+    fprintf(stderr, "load factor = %.3lf\n", rank.size() / double(std::extent_v<decltype(hashTable)> * std::extent_v<decltype(Chunk::checksumHigh)>));
     timer.report("collect word counts");
 
     std::sort(std::begin(rank), std::end(rank), [] (auto && lhs, auto && rhs) { return std::tie(rhs.first, lhs.second) < std::tie(lhs.first, rhs.second); });
