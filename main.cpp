@@ -29,7 +29,7 @@
 
 namespace
 {
-constexpr size_t kHardwareConstructiveInterferenceSize = 64;
+constexpr uint32_t kHardwareConstructiveInterferenceSize = 64;
 
 alignas(sizeof(__m128i)) char input[1u << 29];
 
@@ -68,19 +68,21 @@ inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
     uint16_t checksumHigh = checksum >> hashTableOrder;
     int mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(checksumHigh)));
     mask |= ((chunk.checksumHigh[8] == checksumHigh) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == checksumHigh) ? (0b11 << (9 * 2)) : 0);
-    int index;
+    unsigned long index;
     if (UNLIKELY(mask == 0)) {
         mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(1u << 15)));
         mask |= ((chunk.checksumHigh[8] == (1 << 15)) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == (1u << 15)) ? (0b11 << (9 * 2)) : 0);
         assert(mask != 0); // more then 10 collisions by checksumLow
-        index = __bsfd(mask) / 2;
+		_BitScanForward(&index, mask);
+        index /= 2;
         chunk.checksumHigh[index] = checksumHigh;
-        words[checksumLow][index] = std::distance(output, o);
+        words[checksumLow][index] = uint32_t(std::distance(output, o));
         o = std::copy_n(std::next(input, wordEnd - len), len, o);
         *o++ = '\0';
     } else {
-        assert(__popcntd(mask) == 2);
-        index = __bsfd(mask) / 2;
+        assert(_mm_popcnt_u32(mask) == 2);
+		_BitScanForward(&index, mask);
+		index /= 2;
     }
     assert(index < std::extent_v<decltype(chunk.count)>);
     ++chunk.count[index];
@@ -111,11 +113,11 @@ int main(int argc, char * argv[])
 
     timer.report("open files");
 
-    size_t size = std::fread(input, sizeof *input, sizeof input, inputFile.get());
+    auto size = uint32_t(std::fread(input, sizeof *input, std::extent_v<decltype(input)>, inputFile.get()));
     assert(size < std::extent_v<decltype(input)>);
-    fprintf(stderr, "input size = %zu bytes\n", size);
+    fprintf(stderr, "input size = %u bytes\n", size);
     {
-        const size_t roundedSize = ((size + kHardwareConstructiveInterferenceSize - 1) / kHardwareConstructiveInterferenceSize) * kHardwareConstructiveInterferenceSize;
+        const uint32_t roundedSize = ((size + kHardwareConstructiveInterferenceSize - 1) / kHardwareConstructiveInterferenceSize) * kHardwareConstructiveInterferenceSize;
         std::fill(input + size, input + roundedSize, '\0');
         size = roundedSize;
     }

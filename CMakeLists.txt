@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14.2)
+cmake_minimum_required(VERSION 3.12.0)
 project("freq")
 
 add_executable("${PROJECT_NAME}")
