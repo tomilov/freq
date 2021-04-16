@@ -13,7 +13,6 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 # include <intrin.h>
@@ -25,39 +24,40 @@
 
 namespace
 {
+alignas(__m128i) char input[1u << 29];
+
 constexpr uint32_t kHardwareConstructiveInterferenceSize = 64;
 
-alignas(sizeof(__m128i)) char input[1u << 29];
-
 constexpr uint32_t kInitialChecksum = 8;
+constexpr uint16_t kDefaultChecksumHigh = 1u << 15;
 
 #pragma pack(push, 1)
 struct alignas(kHardwareConstructiveInterferenceSize) Chunk
 {
     uint16_t checksumHigh[10] = {
-        1u << 15,
-        1u << 15,
-        1u << 15,
-        1u << 15,
-        1u << 15,
-        1u << 15,
-        1u << 15,
-        1u << 15,
-        1u << 15,
-        1u << 15,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
+        kDefaultChecksumHigh,
     };
     uint32_t count[std::extent_v<decltype(checksumHigh)>] = {};
 };
 #pragma pack(pop)
 static_assert(sizeof(Chunk) == kHardwareConstructiveInterferenceSize);
 
-constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit for default value (i.e. 1u << 15)
+constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit for kDefaultChecksumHigh
 Chunk hashTable[1u << hashTableOrder];
-char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
-auto o = output + 1; // words[i] == 0 only for unused hashes
+alignas(__m128i) char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
+auto o = output + 1; // words[i][j] == std::distance(output, o) == 0 only for unused hashes
 uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::checksumHigh)>] = {};
 
-void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
+void incCounter(uint32_t checksum, uint32_t wordEnd, uint8_t len)
 {
     uint32_t checksumLow = checksum & ((1u << hashTableOrder) - 1u);
     Chunk & chunk = hashTable[checksumLow];
@@ -83,9 +83,9 @@ void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
 #endif
         index /= 2;
     } else {
-        mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(1u << 15)));
-        mask |= ((chunk.checksumHigh[8] == (1u << 15)) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == (1u << 15)) ? (0b11 << (9 * 2)) : 0);
-        assert(mask != 0); // more then 10 collisions by checksumLow
+        mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(kDefaultChecksumHigh)));
+        mask |= ((chunk.checksumHigh[8] == kDefaultChecksumHigh) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == kDefaultChecksumHigh) ? (0b11 << (9 * 2)) : 0);
+        assert(mask != 0); // fire if there is more then 10 collisions by checksumLow
 #if defined(_MSC_VER) || defined(__MINGW32__)
         _BitScanForward(&index, mask);
 #elif defined(__clang__) || defined(__GNUG__)
@@ -103,25 +103,25 @@ void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
     ++chunk.count[index];
 }
 
-void filterInput(uint32_t size)
+void countWords(uint32_t size)
 {
     uint32_t checksum = kInitialChecksum;
     uint8_t len = 0;
     for (uint32_t i = 0; i < size; i += sizeof(__m128i)) {
         __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(input + i));
-        static_assert('A' < 'a');
         __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
         int mask = _mm_movemask_epi8(_mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z'))));
 #define BYTE(offset)                                                                \
-        if (mask & (1 << offset)) {                                                 \
+        if ((mask & (1 << offset)) == 0) {                                          \
+            assert(len != std::numeric_limits<decltype(len)>::max());               \
+            ++len;                                                                  \
+            checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
+        } else {                                                                    \
             if (len > 0) {                                                          \
                 incCounter(checksum, i + offset, len);                              \
                 len = 0;                                                            \
                 checksum = kInitialChecksum;                                        \
             }                                                                       \
-        } else {                                                                    \
-            ++len;                                                                  \
-            checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
         }
         BYTE(0);
         BYTE(1);
@@ -157,13 +157,15 @@ int main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
-    std::unique_ptr<std::FILE, decltype((std::fclose))> inputFile{(std::strcmp(argv[1], "-") == 0) ? stdin : std::fopen(argv[1], "rb"), std::fclose};
+    using namespace std::string_view_literals;
+
+    std::unique_ptr<std::FILE, decltype((std::fclose))> inputFile{(argv[1] == "-"sv) ? stdin : std::fopen(argv[1], "rb"), std::fclose};
     if (!inputFile) {
         fprintf(stderr, "failed to open \"%s\" file to read", argv[1]);
         return EXIT_FAILURE;
     }
 
-    std::unique_ptr<std::FILE, decltype((std::fclose))> outputFile{(std::strcmp(argv[2], "-") == 0) ? stdout : std::fopen(argv[2], "wb"), std::fclose};
+    std::unique_ptr<std::FILE, decltype((std::fclose))> outputFile{(argv[2] == "-"sv) ? stdout : std::fopen(argv[2], "wb"), std::fclose};
     if (!outputFile) {
         fprintf(stderr, "failed to open \"%s\" file to write", argv[2]);
         return EXIT_FAILURE;
@@ -175,19 +177,19 @@ int main(int argc, char * argv[])
     assert(size < std::extent_v<decltype(input)>);
     fprintf(stderr, "input size = %u bytes\n", size);
     {
-        const uint32_t roundedSize = ((size + kHardwareConstructiveInterferenceSize - 1) / kHardwareConstructiveInterferenceSize) * kHardwareConstructiveInterferenceSize;
-        std::fill(input + size, input + roundedSize, '\0');
-        size = roundedSize;
+        const uint32_t roundedUpSize = ((size + sizeof(__m128i) - 1) / sizeof(__m128i)) * sizeof(__m128i);
+        std::fill(input + size, input + roundedUpSize, '\0');
+        size = roundedUpSize;
     }
-    timer.report("read all the input");
+    timer.report("read input");
 
-    filterInput(size);
-    timer.report("filter input");
+    countWords(size);
+    timer.report("count words");
 
-    for (ptrdiff_t out = 0; out < o - output; out += sizeof(__m128i)) {
-        __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(output + out));
+    for (auto out = output; out < o; out += sizeof(__m128i)) {
+        __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(out));
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('A')), _mm_cmpgt_epi8(str, _mm_set1_epi8('Z')));
-        _mm_stream_si128(reinterpret_cast<__m128i *>(output + out), _mm_add_epi8(_mm_andnot_si128(mask, _mm_set1_epi8('a' - 'A')), str));
+        _mm_stream_si128(reinterpret_cast<__m128i *>(out), _mm_add_epi8(_mm_andnot_si128(mask, _mm_set1_epi8('a' - 'A')), str));
     }
     timer.report("lowercase output");
 
@@ -196,17 +198,18 @@ int main(int argc, char * argv[])
     {
         uint32_t checksumLow = 0;
         for (const auto & w : words) {
+            const Chunk & chunk = hashTable[checksumLow];
             uint32_t index = 0;
             for (uint32_t word : w) {
                 if (word) {
-                    rank.emplace_back(hashTable[checksumLow].count[index], output + word);
+                    rank.emplace_back(chunk.count[index], output + word);
                 }
                 ++index;
             }
             ++checksumLow;
         }
     }
-    fprintf(stderr, "load factor = %.3lf\n", rank.size() / double(std::extent_v<decltype(hashTable)> * std::extent_v<decltype(Chunk::checksumHigh)>));
+    fprintf(stderr, "load factor = %.3lf\n", rank.size() / double(rank.capacity()));
     timer.report("collect word counts");
 
     std::sort(std::begin(rank), std::end(rank), [] (auto && lhs, auto && rhs) { return std::tie(rhs.first, lhs.second) < std::tie(lhs.first, rhs.second); });

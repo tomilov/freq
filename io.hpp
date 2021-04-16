@@ -26,7 +26,6 @@ public :
         flush();
     }
 
-    // non-moveable/non-copyable due to `it` and `end` points to member's data
     OutputStream(const OutputStream &) = delete;
     OutputStream & operator = (const OutputStream &) = delete;
 

@@ -3,6 +3,8 @@
 #include <chrono>
 #include <utility>
 
+#include <cstdio>
+
 struct Timer
 {
     using high_resolution_clock = std::chrono::high_resolution_clock;
