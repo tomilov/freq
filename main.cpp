@@ -68,12 +68,25 @@ inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
     uint16_t checksumHigh = checksum >> hashTableOrder;
     int mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(checksumHigh)));
     mask |= ((chunk.checksumHigh[8] == checksumHigh) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == checksumHigh) ? (0b11 << (9 * 2)) : 0);
+
+#if defined(_MSC_VER) || defined(__MINGW32__)
     unsigned long index;
+#elif defined(__clang__) || defined(__GNUG__)
+    int index;
+#else
+# error "!"
+#endif
     if (UNLIKELY(mask == 0)) {
         mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(1u << 15)));
-        mask |= ((chunk.checksumHigh[8] == (1 << 15)) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == (1u << 15)) ? (0b11 << (9 * 2)) : 0);
+        mask |= ((chunk.checksumHigh[8] == (1u << 15)) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == (1u << 15)) ? (0b11 << (9 * 2)) : 0);
         assert(mask != 0); // more then 10 collisions by checksumLow
-		_BitScanForward(&index, mask);
+#if defined(_MSC_VER) || defined(__MINGW32__)
+        _BitScanForward(&index, mask);
+#elif defined(__clang__) || defined(__GNUG__)
+        index = __bsfd(mask);
+#else
+# error "!"
+#endif
         index /= 2;
         chunk.checksumHigh[index] = checksumHigh;
         words[checksumLow][index] = uint32_t(std::distance(output, o));
@@ -81,8 +94,14 @@ inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
         *o++ = '\0';
     } else {
         assert(_mm_popcnt_u32(mask) == 2);
-		_BitScanForward(&index, mask);
-		index /= 2;
+#if defined(_MSC_VER) || defined(__MINGW32__)
+        _BitScanForward(&index, mask);
+#elif defined(__clang__) || defined(__GNUG__)
+        index = __bsfd(mask);
+#else
+# error "!"
+#endif
+        index /= 2;
     }
     assert(index < std::extent_v<decltype(chunk.count)>);
     ++chunk.count[index];
