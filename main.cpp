@@ -16,16 +16,15 @@
 #include <cstring>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
+# define LIKELY(x) (x)
+# define UNLIKELY(x) (x)
 # include <immintrin.h>
 #elif defined(__clang__) || defined(__GNUG__)
+# define LIKELY(x) (__builtin_expect((x), 1))
+# define UNLIKELY(x) (__builtin_expect((x), 0))
 # include <x86intrin.h>
 #else
-#error "!"
-#endif
-
-#if defined(__GNUC__)
-#define LIKELY(x) (__builtin_expect((x), 1))
-#define UNLIKELY(x) (__builtin_expect((x), 0))
+# error "!"
 #endif
 
 namespace
@@ -74,16 +73,14 @@ inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
         mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(1u << 15)));
         mask |= ((chunk.checksumHigh[8] == (1 << 15)) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == (1u << 15)) ? (0b11 << (9 * 2)) : 0);
         assert(mask != 0); // more then 10 collisions by checksumLow
-        index = _bit_scan_forward(mask) / 2;
+        index = __bsfd(mask) / 2;
         chunk.checksumHigh[index] = checksumHigh;
         words[checksumLow][index] = std::distance(output, o);
-        for (auto i = wordEnd - len; i < wordEnd; ++i) {
-            *o++ = input[i] + (UNLIKELY(input[i] < 'a') ? ('a' - 'A') : 0);
-        }
+        o = std::copy_n(std::next(input, wordEnd - len), len, o);
         *o++ = '\0';
     } else {
-        assert(_popcnt32(mask) == 2);
-        index = _bit_scan_forward(mask) / 2;
+        assert(__popcntd(mask) == 2);
+        index = __bsfd(mask) / 2;
     }
     assert(index < std::extent_v<decltype(chunk.count)>);
     ++chunk.count[index];
@@ -166,6 +163,13 @@ int main(int argc, char * argv[])
         }
     }
     timer.report("filter input");
+
+    for (ptrdiff_t out = 0; out < o - output; out += sizeof(__m128i)) {
+        __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(output + out));
+        __m128i mask = _mm_or_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('A')), _mm_cmpgt_epi8(str, _mm_set1_epi8('Z')));
+        _mm_stream_si128(reinterpret_cast<__m128i *>(output + out), _mm_add_epi8(_mm_andnot_si128(mask, _mm_set1_epi8('a' - 'A')), str));
+    }
+    timer.report("lowercase output");
 
     std::vector<std::pair<uint32_t, std::string_view>> rank;
     rank.reserve(std::extent_v<decltype(words)> * std::extent_v<decltype(words), 1>);
