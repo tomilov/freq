@@ -18,7 +18,7 @@
 #if defined(_MSC_VER) || defined(__MINGW32__)
 # define LIKELY(x) (x)
 # define UNLIKELY(x) (x)
-# include <immintrin.h>
+# include <intrin.h>
 #elif defined(__clang__) || defined(__GNUG__)
 # define LIKELY(x) (__builtin_expect((x), 1))
 # define UNLIKELY(x) (__builtin_expect((x), 0))
