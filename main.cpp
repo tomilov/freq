@@ -16,12 +16,8 @@
 #include <cstring>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
-# define LIKELY(x) (x)
-# define UNLIKELY(x) (x)
 # include <intrin.h>
 #elif defined(__clang__) || defined(__GNUG__)
-# define LIKELY(x) (__builtin_expect((x), 1))
-# define UNLIKELY(x) (__builtin_expect((x), 0))
 # include <x86intrin.h>
 #else
 # error "!"
@@ -61,7 +57,7 @@ char output[std::extent_v<decltype(input)> + 2]; // provide space for leading un
 auto o = output + 1; // words[i] == 0 only for unused hashes
 uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::checksumHigh)>] = {};
 
-inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
+void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
 {
     uint32_t checksumLow = checksum & ((1u << hashTableOrder) - 1u);
     Chunk & chunk = hashTable[checksumLow];
@@ -76,7 +72,17 @@ inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
 #else
 # error "!"
 #endif
-    if (UNLIKELY(mask == 0)) {
+    if (mask != 0) {
+        assert(_mm_popcnt_u32(mask) == 2);
+#if defined(_MSC_VER) || defined(__MINGW32__)
+        _BitScanForward(&index, mask);
+#elif defined(__clang__) || defined(__GNUG__)
+        index = __bsfd(mask);
+#else
+# error "!"
+#endif
+        index /= 2;
+    } else {
         mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(1u << 15)));
         mask |= ((chunk.checksumHigh[8] == (1u << 15)) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == (1u << 15)) ? (0b11 << (9 * 2)) : 0);
         assert(mask != 0); // more then 10 collisions by checksumLow
@@ -92,19 +98,52 @@ inline void incCounter(uint32_t checksum, uint32_t wordEnd, uint32_t len)
         words[checksumLow][index] = uint32_t(std::distance(output, o));
         o = std::copy_n(std::next(input, wordEnd - len), len, o);
         *o++ = '\0';
-    } else {
-        assert(_mm_popcnt_u32(mask) == 2);
-#if defined(_MSC_VER) || defined(__MINGW32__)
-        _BitScanForward(&index, mask);
-#elif defined(__clang__) || defined(__GNUG__)
-        index = __bsfd(mask);
-#else
-# error "!"
-#endif
-        index /= 2;
     }
     assert(index < std::extent_v<decltype(chunk.count)>);
     ++chunk.count[index];
+}
+
+void filterInput(uint32_t size)
+{
+    uint32_t checksum = kInitialChecksum;
+    uint8_t len = 0;
+    for (uint32_t i = 0; i < size; i += sizeof(__m128i)) {
+        __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(input + i));
+        static_assert('A' < 'a');
+        __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
+        int mask = _mm_movemask_epi8(_mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z'))));
+#define BYTE(offset)                                                                \
+        if (mask & (1 << offset)) {                                                 \
+            if (len > 0) {                                                          \
+                incCounter(checksum, i + offset, len);                              \
+                len = 0;                                                            \
+                checksum = kInitialChecksum;                                        \
+            }                                                                       \
+        } else {                                                                    \
+            ++len;                                                                  \
+            checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
+        }
+        BYTE(0);
+        BYTE(1);
+        BYTE(2);
+        BYTE(3);
+        BYTE(4);
+        BYTE(5);
+        BYTE(6);
+        BYTE(7);
+        BYTE(8);
+        BYTE(9);
+        BYTE(10);
+        BYTE(11);
+        BYTE(12);
+        BYTE(13);
+        BYTE(14);
+        BYTE(15);
+#undef BYTE
+    }
+    if (len > 0) {
+        incCounter(checksum, size, len);
+    }
 }
 
 } // namespace
@@ -142,47 +181,7 @@ int main(int argc, char * argv[])
     }
     timer.report("read all the input");
 
-    {
-        uint32_t checksum = kInitialChecksum;
-        uint8_t len = 0;
-        for (uint32_t i = 0; i < size; i += sizeof(__m128i)) {
-            __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(input + i));
-            static_assert('A' < 'a');
-            __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
-            int mask = _mm_movemask_epi8(_mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z'))));
-#define BYTE(offset)                                                                    \
-            if (UNLIKELY(mask & (1 << offset))) {                                       \
-                if (len > 0) {                                                          \
-                    incCounter(checksum, i + offset, len);                              \
-                    len = 0;                                                            \
-                    checksum = kInitialChecksum;                                        \
-                }                                                                       \
-            } else {                                                                    \
-                ++len;                                                                  \
-                checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
-            }
-            BYTE(0);
-            BYTE(1);
-            BYTE(2);
-            BYTE(3);
-            BYTE(4);
-            BYTE(5);
-            BYTE(6);
-            BYTE(7);
-            BYTE(8);
-            BYTE(9);
-            BYTE(10);
-            BYTE(11);
-            BYTE(12);
-            BYTE(13);
-            BYTE(14);
-            BYTE(15);
-#undef BYTE
-        }
-        if (len > 0) {
-            incCounter(checksum, size, len);
-        }
-    }
+    filterInput(size);
     timer.report("filter input");
 
     for (ptrdiff_t out = 0; out < o - output; out += sizeof(__m128i)) {
@@ -199,7 +198,7 @@ int main(int argc, char * argv[])
         for (const auto & w : words) {
             uint32_t index = 0;
             for (uint32_t word : w) {
-                if (LIKELY(word)) {
+                if (word) {
                     rank.emplace_back(hashTable[checksumLow].count[index], output + word);
                 }
                 ++index;
