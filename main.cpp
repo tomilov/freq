@@ -25,6 +25,7 @@
 namespace
 {
 alignas(__m128i) char input[1u << 29];
+auto i = input;
 
 constexpr uint32_t kHardwareConstructiveInterferenceSize = 64;
 
@@ -40,19 +41,19 @@ struct alignas(kHardwareConstructiveInterferenceSize) Chunk
 #pragma pack(pop)
 static_assert(sizeof(Chunk) == kHardwareConstructiveInterferenceSize);
 
-constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 2; // one bit for kDefaultChecksumHigh and one another to guarantee <= 8 collisions per chunk for the seed (kInitialChecksum)
+constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 2; // one bit for kDefaultChecksumHigh and one another to guarantee that <= 8 collisions per chunk is feasible for the seed (kInitialChecksum)
 Chunk hashTable[1u << hashTableOrder];
 alignas(__m128i) char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
-auto o = output + 1; // words[i][j] == std::distance(output, o) == 0 only for unused hashes
-uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
+auto o = output + 1; // words[i][j] == std::distance(output, o) is 0 only for unused hashes
+alignas(kHardwareConstructiveInterferenceSize) uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
 
-void incCounter(uint32_t checksum, uint32_t wordEnd, uint8_t len)
+void incCounter(uint32_t checksum, const char * __restrict__ wordEnd, uint8_t len)
 {
     uint32_t checksumLow = checksum & ((1u << hashTableOrder) - 1u);
     Chunk & chunk = hashTable[checksumLow];
     uint16_t checksumHigh = checksum >> hashTableOrder;
     __m128i checksumsHigh = _mm_load_si128(&chunk.checksumHigh);
-    int m = _mm_movemask_epi8(_mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(checksumHigh)));
+    uint16_t m = uint16_t(_mm_movemask_epi8(_mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(checksumHigh))));
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
     unsigned long index;
@@ -72,8 +73,8 @@ void incCounter(uint32_t checksum, uint32_t wordEnd, uint8_t len)
 #endif
         index /= 2;
     } else {
-        m = _mm_movemask_epi8(_mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(kDefaultChecksumHigh)));
-        assert(m != 0); // fire if there is more then 10 collisions by checksumLow
+        m = uint16_t(_mm_movemask_epi8(checksumsHigh)) & 0b1010101010101010u;
+        assert(m != 0); // fire if there is more then 8 collisions by checksumLow
 #if defined(_MSC_VER) || defined(__MINGW32__)
         _BitScanForward(&index, m);
 #elif defined(__clang__) || defined(__GNUG__)
@@ -84,19 +85,19 @@ void incCounter(uint32_t checksum, uint32_t wordEnd, uint8_t len)
         index /= 2;
         reinterpret_cast<uint16_t *>(&chunk.checksumHigh)[index] = checksumHigh;
         words[checksumLow][index] = uint32_t(std::distance(output, o));
-        o = std::copy_n(std::next(input, wordEnd - len), len, o);
+        o = std::copy_n(std::prev(wordEnd, len), len, o);
         *o++ = '\0';
     }
     assert(index < std::extent_v<decltype(chunk.count)>);
     ++chunk.count[index];
 }
 
-void countWords(uint32_t size)
+void countWords()
 {
     uint32_t checksum = kInitialChecksum;
     uint8_t len = 0;
-    for (uint32_t i = 0; i < size; i += sizeof(__m128i)) {
-        __m128i str = _mm_load_si128(reinterpret_cast<__m128i *>(input + i));
+    for (auto in = input; in < i; in += sizeof(__m128i)) {
+        __m128i str = _mm_load_si128(reinterpret_cast<__m128i *>(in));
         __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
         if ((true)) {
@@ -108,7 +109,7 @@ void countWords(uint32_t size)
                 checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
             } else {                                                                    \
                 if (len > 0) {                                                          \
-                    incCounter(checksum, i + offset, len);                              \
+                    incCounter(checksum, in + offset, len);                              \
                     len = 0;                                                            \
                     checksum = kInitialChecksum;                                        \
                 }                                                                       \
@@ -133,14 +134,15 @@ void countWords(uint32_t size)
         } else {
             alignas(__m128i) char line[sizeof(__m128i)];
             _mm_store_si128(reinterpret_cast<__m128i *>(line), _mm_andnot_si128(mask, lowercase));
-            for (size_t j = 0; j < sizeof(__m128i); ++j) {
-                if (char c = line[j]; c != '\0') {
+#pragma GCC unroll 16
+            for (size_t offset = 0; offset < sizeof(__m128i); ++offset) {
+                if (char c = line[offset]; c != '\0') {
                     assert(len != std::numeric_limits<decltype(len)>::max());
                     ++len;
                     checksum = _mm_crc32_u8(checksum, c);
                 } else {
                     if (len > 0) {
-                        incCounter(checksum, i + j, len);
+                        incCounter(checksum, in + offset, len);
                         checksum = kInitialChecksum;
                         len = 0;
                     }
@@ -149,7 +151,7 @@ void countWords(uint32_t size)
         }
     }
     if (len > 0) {
-        incCounter(checksum, size, len);
+        incCounter(checksum, i, len);
     }
 }
 
@@ -160,7 +162,7 @@ int main(int argc, char * argv[])
     Timer timer;
 
     if (argc != 3) {
-        fprintf(stderr, "usage: %s in.txt out.txt", argv[0]);
+        fprintf(stderr, "usage: %s in.txt out.txt\n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -180,17 +182,17 @@ int main(int argc, char * argv[])
 
     timer.report("open files");
 
-    auto size = uint32_t(std::fread(input, sizeof *input, std::extent_v<decltype(input)>, inputFile.get()));
-    assert(size < std::extent_v<decltype(input)>);
-    fprintf(stderr, "input size = %u bytes\n", size);
     {
-        const uint32_t roundedUpSize = ((size + sizeof(__m128i) - 1) / sizeof(__m128i)) * sizeof(__m128i);
-        std::fill(input + size, input + roundedUpSize, '\0');
-        size = roundedUpSize;
+        auto size = uint32_t(std::fread(input, sizeof *input, std::extent_v<decltype(input)>, inputFile.get()));
+        assert(size < std::extent_v<decltype(input)>);
+        fprintf(stderr, "input size = %u bytes\n", size);
+
+        i += ((size + sizeof(__m128i) - 1) / sizeof(__m128i)) * sizeof(__m128i);
+        std::fill(input + size, i, '\0');
     }
     timer.report("read input");
 
-    countWords(size);
+    countWords();
     timer.report("count words");
 
     for (auto out = output; out < o; out += sizeof(__m128i)) {
@@ -198,7 +200,6 @@ int main(int argc, char * argv[])
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('A')), _mm_cmpgt_epi8(str, _mm_set1_epi8('Z')));
         _mm_store_si128(reinterpret_cast<__m128i *>(out), _mm_add_epi8(_mm_andnot_si128(mask, _mm_set1_epi8('a' - 'A')), str));
     }
-    _mm_sfence();
     timer.report("lowercase output");
 
     std::vector<std::pair<uint32_t, std::string_view>> rank;
@@ -209,7 +210,7 @@ int main(int argc, char * argv[])
             const Chunk & chunk = hashTable[checksumLow];
             uint32_t index = 0;
             for (uint32_t word : w) {
-                if (word) {
+                if (word != 0) {
                     rank.emplace_back(chunk.count[index], output + word);
                 }
                 ++index;
@@ -226,19 +227,19 @@ int main(int argc, char * argv[])
     OutputStream<> outputStream{outputFile.get()};
     for (const auto & [count, word] : rank) {
         if (!outputStream.print(count)) {
-            fprintf(stderr, "output failure");
+            fprintf(stderr, "output failure\n");
             return EXIT_FAILURE;
         }
         if (!outputStream.putChar(' ')) {
-            fprintf(stderr, "output failure");
+            fprintf(stderr, "output failure\n");
             return EXIT_FAILURE;
         }
         if (!outputStream.print(word.data())) {
-            fprintf(stderr, "output failure");
+            fprintf(stderr, "output failure\n");
             return EXIT_FAILURE;
         }
         if (!outputStream.putChar('\n')) {
-            fprintf(stderr, "output failure");
+            fprintf(stderr, "output failure\n");
             return EXIT_FAILURE;
         }
     }
