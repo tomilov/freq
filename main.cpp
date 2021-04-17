@@ -35,15 +35,12 @@ constexpr uint16_t kDefaultChecksumHigh = 1u << 15;
 struct alignas(kHardwareConstructiveInterferenceSize) Chunk
 {
     __m128i checksumHigh = _mm_set1_epi16(kDefaultChecksumHigh);
-    //uint16_t ch8 = kDefaultChecksumHigh;
-    //uint16_t ch9 = kDefaultChecksumHigh;
-    //uint32_t padding0;
     uint32_t count[8] = {};
 };
 #pragma pack(pop)
 static_assert(sizeof(Chunk) == kHardwareConstructiveInterferenceSize);
 
-constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 2; // one bit for kDefaultChecksumHigh
+constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 2; // one bit for kDefaultChecksumHigh and one another to guarantee <= 8 collisions per chunk for the seed (kInitialChecksum)
 Chunk hashTable[1u << hashTableOrder];
 alignas(__m128i) char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
 auto o = output + 1; // words[i][j] == std::distance(output, o) == 0 only for unused hashes
@@ -56,8 +53,6 @@ void incCounter(uint32_t checksum, uint32_t wordEnd, uint8_t len)
     uint16_t checksumHigh = checksum >> hashTableOrder;
     __m128i checksumsHigh = _mm_load_si128(&chunk.checksumHigh);
     int m = _mm_movemask_epi8(_mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(checksumHigh)));
-    //m |= ((chunk.ch8 == checksumHigh) ? (0b11 << (8 * 2)) : 0);
-    //m |= ((chunk.ch9 == checksumHigh) ? (0b11 << (9 * 2)) : 0);
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
     unsigned long index;
@@ -78,8 +73,6 @@ void incCounter(uint32_t checksum, uint32_t wordEnd, uint8_t len)
         index /= 2;
     } else {
         m = _mm_movemask_epi8(_mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(kDefaultChecksumHigh)));
-        //m |= ((chunk.ch8 == kDefaultChecksumHigh) ? (0b11 << (8 * 2)) : 0);
-        //m |= ((chunk.ch9 == kDefaultChecksumHigh) ? (0b11 << (9 * 2)) : 0);
         assert(m != 0); // fire if there is more then 10 collisions by checksumLow
 #if defined(_MSC_VER) || defined(__MINGW32__)
         _BitScanForward(&index, m);
@@ -196,63 +189,6 @@ int main(int argc, char * argv[])
         size = roundedUpSize;
     }
     timer.report("read input");
-
-    if ((false)) {
-        for (auto in = input; in < input + size; in += sizeof(__m128i)) {
-            __m128i str = _mm_stream_load_si128(reinterpret_cast<const __m128i *>(in));
-            __m128i lowercase = _mm_add_epi8(str, _mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')));
-            __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
-            _mm_stream_si128(reinterpret_cast<__m128i *>(in), _mm_andnot_si128(mask, lowercase));
-        }
-        _mm_sfence();
-
-#pragma omp parallel for
-        for (uint32_t initialChecksum = 0; initialChecksum < 1000000; ++initialChecksum) {
-        //for (uint32_t initialChecksum : {}) {
-            std::unordered_map<uint32_t, std::unordered_map<std::string_view, size_t>> hashes;
-
-            const auto end = input + size;
-            auto lo = std::find(input, end, '\0');
-            ptrdiff_t s = 0;
-            ptrdiff_t w = std::distance(input, lo);
-            while (lo != end) {
-                auto hi = std::find_if_not(lo, end, [](char c) { return c == '\0'; });
-                s = std::max(s, std::distance(lo, hi));
-                lo = std::find(hi, end, '\0');
-                uint32_t hash = initialChecksum;
-                for (auto c = hi; c != lo; ++c) {
-                    hash = _mm_crc32_u8(hash, *c);
-                }
-                ++hashes[hash & ((1u << (hashTableOrder + 1)) - 1u)][{hi, lo}];
-                w = std::max(w, std::distance(hi, lo));
-            }
-            //fprintf(stderr, "whitespaces %zi ; word length %zi\n", s, w);
-
-            size_t wc = 0;
-            size_t n = 0;
-            size_t collision = 0;
-            for (const auto & [hash, set] : hashes) {
-                (void)hash;
-                collision = std::max(collision, set.size());
-                if (set.size() > 1) {
-                    ++n;
-                }
-                for (const auto & [word, count] : set) {
-                    if (set.size() > 1) {
-                        //std::cout << word << ", ";
-                    }
-                    wc = std::max(wc, count);
-                }
-                if (set.size() > 1) {
-                    //std::cout << std::endl;
-                }
-            }
-            if (collision <= 8) {
-                fprintf(stderr, "collision = %u %zu %zu %zu\n", initialChecksum, collision, n, wc);
-            }
-        }
-        return 0;
-    }
 
     countWords(size);
     timer.report("count words");
