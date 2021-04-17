@@ -194,9 +194,9 @@ int main(int argc, char * argv[])
     timer.report("count words");
 
     for (auto out = output; out < o; out += sizeof(__m128i)) {
-        __m128i str = _mm_stream_load_si128(reinterpret_cast<const __m128i *>(out));
+        __m128i str = _mm_load_si128(reinterpret_cast<const __m128i *>(out));
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('A')), _mm_cmpgt_epi8(str, _mm_set1_epi8('Z')));
-        _mm_stream_si128(reinterpret_cast<__m128i *>(out), _mm_add_epi8(_mm_andnot_si128(mask, _mm_set1_epi8('a' - 'A')), str));
+        _mm_store_si128(reinterpret_cast<__m128i *>(out), _mm_add_epi8(_mm_andnot_si128(mask, _mm_set1_epi8('a' - 'A')), str));
     }
     _mm_sfence();
     timer.report("lowercase output");
