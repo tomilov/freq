@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.12.0)
 project("freq")
 
+find_package(OpenMP REQUIRED)
+
 add_executable("${PROJECT_NAME}")
 
 target_sources(
@@ -9,6 +11,11 @@ target_sources(
         "io.hpp"
         "timer.hpp"
         "main.cpp")
+
+target_link_libraries(
+    "${PROJECT_NAME}"
+    PUBLIC
+        OpenMP::OpenMP_CXX)
 
 set_property(TARGET "${PROJECT_NAME}" PROPERTY CXX_STANDARD 20)
 target_compile_definitions("${PROJECT_NAME}" PRIVATE $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>)

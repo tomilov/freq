@@ -28,42 +28,36 @@ alignas(__m128i) char input[1u << 29];
 
 constexpr uint32_t kHardwareConstructiveInterferenceSize = 64;
 
-constexpr uint32_t kInitialChecksum = 8;
+constexpr uint32_t kInitialChecksum = 23; // 937506, 250008, 750009, 375010, 250014, 62519, 23, 875034, 750040
 constexpr uint16_t kDefaultChecksumHigh = 1u << 15;
 
 #pragma pack(push, 1)
 struct alignas(kHardwareConstructiveInterferenceSize) Chunk
 {
-    uint16_t checksumHigh[10] = {
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-        kDefaultChecksumHigh,
-    };
-    uint32_t count[std::extent_v<decltype(checksumHigh)>] = {};
+    __m128i checksumHigh = _mm_set1_epi16(kDefaultChecksumHigh);
+    //uint16_t ch8 = kDefaultChecksumHigh;
+    //uint16_t ch9 = kDefaultChecksumHigh;
+    //uint32_t padding0;
+    uint32_t count[8] = {};
 };
 #pragma pack(pop)
 static_assert(sizeof(Chunk) == kHardwareConstructiveInterferenceSize);
 
-constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit for kDefaultChecksumHigh
+constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 2; // one bit for kDefaultChecksumHigh
 Chunk hashTable[1u << hashTableOrder];
 alignas(__m128i) char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
 auto o = output + 1; // words[i][j] == std::distance(output, o) == 0 only for unused hashes
-uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::checksumHigh)>] = {};
+uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
 
 void incCounter(uint32_t checksum, uint32_t wordEnd, uint8_t len)
 {
     uint32_t checksumLow = checksum & ((1u << hashTableOrder) - 1u);
     Chunk & chunk = hashTable[checksumLow];
     uint16_t checksumHigh = checksum >> hashTableOrder;
-    int mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(checksumHigh)));
-    mask |= ((chunk.checksumHigh[8] == checksumHigh) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == checksumHigh) ? (0b11 << (9 * 2)) : 0);
+    __m128i checksumsHigh = _mm_load_si128(&chunk.checksumHigh);
+    int m = _mm_movemask_epi8(_mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(checksumHigh)));
+    //m |= ((chunk.ch8 == checksumHigh) ? (0b11 << (8 * 2)) : 0);
+    //m |= ((chunk.ch9 == checksumHigh) ? (0b11 << (9 * 2)) : 0);
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
     unsigned long index;
@@ -72,29 +66,30 @@ void incCounter(uint32_t checksum, uint32_t wordEnd, uint8_t len)
 #else
 # error "!"
 #endif
-    if (mask != 0) {
-        assert(_mm_popcnt_u32(mask) == 2);
+    if (m != 0) {
+        //assert(_mm_popcnt_u32(m) == 2);
 #if defined(_MSC_VER) || defined(__MINGW32__)
-        _BitScanForward(&index, mask);
+        _BitScanForward(&index, m);
 #elif defined(__clang__) || defined(__GNUG__)
-        index = __bsfd(mask);
+        index = __bsfd(m);
 #else
 # error "!"
 #endif
         index /= 2;
     } else {
-        mask = _mm_movemask_epi8(_mm_cmpeq_epi16(*reinterpret_cast<const __m128i *>(&chunk.checksumHigh), _mm_set1_epi16(kDefaultChecksumHigh)));
-        mask |= ((chunk.checksumHigh[8] == kDefaultChecksumHigh) ? (0b11 << (8 * 2)) : 0) | ((chunk.checksumHigh[9] == kDefaultChecksumHigh) ? (0b11 << (9 * 2)) : 0);
-        assert(mask != 0); // fire if there is more then 10 collisions by checksumLow
+        m = _mm_movemask_epi8(_mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(kDefaultChecksumHigh)));
+        //m |= ((chunk.ch8 == kDefaultChecksumHigh) ? (0b11 << (8 * 2)) : 0);
+        //m |= ((chunk.ch9 == kDefaultChecksumHigh) ? (0b11 << (9 * 2)) : 0);
+        assert(m != 0); // fire if there is more then 10 collisions by checksumLow
 #if defined(_MSC_VER) || defined(__MINGW32__)
-        _BitScanForward(&index, mask);
+        _BitScanForward(&index, m);
 #elif defined(__clang__) || defined(__GNUG__)
-        index = __bsfd(mask);
+        index = __bsfd(m);
 #else
 # error "!"
 #endif
         index /= 2;
-        chunk.checksumHigh[index] = checksumHigh;
+        reinterpret_cast<uint16_t *>(&chunk.checksumHigh)[index] = checksumHigh;
         words[checksumLow][index] = uint32_t(std::distance(output, o));
         o = std::copy_n(std::next(input, wordEnd - len), len, o);
         *o++ = '\0';
@@ -108,38 +103,57 @@ void countWords(uint32_t size)
     uint32_t checksum = kInitialChecksum;
     uint8_t len = 0;
     for (uint32_t i = 0; i < size; i += sizeof(__m128i)) {
-        __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(input + i));
+        __m128i str = _mm_load_si128(reinterpret_cast<__m128i *>(input + i));
         __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
-        int mask = _mm_movemask_epi8(_mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z'))));
-#define BYTE(offset)                                                                \
-        if ((mask & (1 << offset)) == 0) {                                          \
-            assert(len != std::numeric_limits<decltype(len)>::max());               \
-            ++len;                                                                  \
-            checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
-        } else {                                                                    \
-            if (len > 0) {                                                          \
-                incCounter(checksum, i + offset, len);                              \
-                len = 0;                                                            \
-                checksum = kInitialChecksum;                                        \
-            }                                                                       \
-        }
-        BYTE(0);
-        BYTE(1);
-        BYTE(2);
-        BYTE(3);
-        BYTE(4);
-        BYTE(5);
-        BYTE(6);
-        BYTE(7);
-        BYTE(8);
-        BYTE(9);
-        BYTE(10);
-        BYTE(11);
-        BYTE(12);
-        BYTE(13);
-        BYTE(14);
-        BYTE(15);
+        __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
+        if ((true)) {
+            int m = _mm_movemask_epi8(mask);
+#define BYTE(offset)                                                                    \
+            if ((m & (1 << offset)) == 0) {                                             \
+                assert(len != std::numeric_limits<decltype(len)>::max());               \
+                ++len;                                                                  \
+                checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
+            } else {                                                                    \
+                if (len > 0) {                                                          \
+                    incCounter(checksum, i + offset, len);                              \
+                    len = 0;                                                            \
+                    checksum = kInitialChecksum;                                        \
+                }                                                                       \
+            }
+            BYTE(0);
+            BYTE(1);
+            BYTE(2);
+            BYTE(3);
+            BYTE(4);
+            BYTE(5);
+            BYTE(6);
+            BYTE(7);
+            BYTE(8);
+            BYTE(9);
+            BYTE(10);
+            BYTE(11);
+            BYTE(12);
+            BYTE(13);
+            BYTE(14);
+            BYTE(15);
 #undef BYTE
+        } else {
+            alignas(__m128i) char line[sizeof(__m128i)];
+            _mm_store_si128(reinterpret_cast<__m128i *>(line), _mm_andnot_si128(mask, lowercase));
+            for (size_t j = 0; j < sizeof(__m128i); ++j) {
+                if (char c = line[j]; c != '\0') {
+                    assert(len != std::numeric_limits<decltype(len)>::max());
+                    ++len;
+                    checksum = _mm_crc32_u8(checksum, c);
+                } else {
+                    if (len > 0) {
+                        incCounter(checksum, i + j, len);
+                        checksum = kInitialChecksum;
+                        len = 0;
+                    }
+                }
+            }
+        }
     }
     if (len > 0) {
         incCounter(checksum, size, len);
@@ -161,13 +175,13 @@ int main(int argc, char * argv[])
 
     std::unique_ptr<std::FILE, decltype((std::fclose))> inputFile{(argv[1] == "-"sv) ? stdin : std::fopen(argv[1], "rb"), std::fclose};
     if (!inputFile) {
-        fprintf(stderr, "failed to open \"%s\" file to read", argv[1]);
+        fprintf(stderr, "failed to open \"%s\" file to read\n", argv[1]);
         return EXIT_FAILURE;
     }
 
     std::unique_ptr<std::FILE, decltype((std::fclose))> outputFile{(argv[2] == "-"sv) ? stdout : std::fopen(argv[2], "wb"), std::fclose};
     if (!outputFile) {
-        fprintf(stderr, "failed to open \"%s\" file to write", argv[2]);
+        fprintf(stderr, "failed to open \"%s\" file to write\n", argv[2]);
         return EXIT_FAILURE;
     }
 
@@ -183,14 +197,72 @@ int main(int argc, char * argv[])
     }
     timer.report("read input");
 
+    if ((false)) {
+        for (auto in = input; in < input + size; in += sizeof(__m128i)) {
+            __m128i str = _mm_stream_load_si128(reinterpret_cast<const __m128i *>(in));
+            __m128i lowercase = _mm_add_epi8(str, _mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')));
+            __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
+            _mm_stream_si128(reinterpret_cast<__m128i *>(in), _mm_andnot_si128(mask, lowercase));
+        }
+        _mm_sfence();
+
+#pragma omp parallel for
+        for (uint32_t initialChecksum = 0; initialChecksum < 1000000; ++initialChecksum) {
+        //for (uint32_t initialChecksum : {}) {
+            std::unordered_map<uint32_t, std::unordered_map<std::string_view, size_t>> hashes;
+
+            const auto end = input + size;
+            auto lo = std::find(input, end, '\0');
+            ptrdiff_t s = 0;
+            ptrdiff_t w = std::distance(input, lo);
+            while (lo != end) {
+                auto hi = std::find_if_not(lo, end, [](char c) { return c == '\0'; });
+                s = std::max(s, std::distance(lo, hi));
+                lo = std::find(hi, end, '\0');
+                uint32_t hash = initialChecksum;
+                for (auto c = hi; c != lo; ++c) {
+                    hash = _mm_crc32_u8(hash, *c);
+                }
+                ++hashes[hash & ((1u << (hashTableOrder + 1)) - 1u)][{hi, lo}];
+                w = std::max(w, std::distance(hi, lo));
+            }
+            //fprintf(stderr, "whitespaces %zi ; word length %zi\n", s, w);
+
+            size_t wc = 0;
+            size_t n = 0;
+            size_t collision = 0;
+            for (const auto & [hash, set] : hashes) {
+                (void)hash;
+                collision = std::max(collision, set.size());
+                if (set.size() > 1) {
+                    ++n;
+                }
+                for (const auto & [word, count] : set) {
+                    if (set.size() > 1) {
+                        //std::cout << word << ", ";
+                    }
+                    wc = std::max(wc, count);
+                }
+                if (set.size() > 1) {
+                    //std::cout << std::endl;
+                }
+            }
+            if (collision <= 8) {
+                fprintf(stderr, "collision = %u %zu %zu %zu\n", initialChecksum, collision, n, wc);
+            }
+        }
+        return 0;
+    }
+
     countWords(size);
     timer.report("count words");
 
     for (auto out = output; out < o; out += sizeof(__m128i)) {
-        __m128i str = _mm_stream_load_si128(reinterpret_cast<__m128i *>(out));
+        __m128i str = _mm_stream_load_si128(reinterpret_cast<const __m128i *>(out));
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('A')), _mm_cmpgt_epi8(str, _mm_set1_epi8('Z')));
         _mm_stream_si128(reinterpret_cast<__m128i *>(out), _mm_add_epi8(_mm_andnot_si128(mask, _mm_set1_epi8('a' - 'A')), str));
     }
+    _mm_sfence();
     timer.report("lowercase output");
 
     std::vector<std::pair<uint32_t, std::string_view>> rank;
