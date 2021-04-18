@@ -36,7 +36,7 @@ constexpr uint16_t kDefaultChecksumHigh = ~uint16_t(0);
 #pragma pack(push, 1)
 struct Chunk
 {
-    __m128i checksumHigh = _mm_set1_epi16(kDefaultChecksumHigh);
+    __m128i checksumsHigh = _mm_set1_epi16(kDefaultChecksumHigh);
     int count[sizeof(__m128i) / sizeof(uint16_t)] = {};
 };
 #pragma pack(pop)
@@ -44,7 +44,7 @@ struct Chunk
 constexpr auto kHashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit window for kDefaultChecksumHigh
 Chunk hashTable[1u << kHashTableOrder];
 alignas(__m128i) char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
-auto o = output + 1; // words[i][j] == std::distance(output, o) is 0 only for unused hashes
+auto o = output + 1; // words[i][j] == std::distance(output, o) is 0 for unused hashes only
 int words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
 
 #ifdef _MSC_VER
@@ -56,7 +56,7 @@ void incCounter(uint32_t checksum, const char * __restrict__ wordEnd, uint8_t le
     uint32_t checksumLow = checksum & ((1u << kHashTableOrder) - 1u);
     Chunk & chunk = hashTable[checksumLow];
     uint16_t checksumHigh = checksum >> kHashTableOrder;
-    __m128i checksumsHigh = _mm_load_si128(&chunk.checksumHigh);
+    __m128i checksumsHigh = _mm_load_si128(&chunk.checksumsHigh);
     __m128i mask = _mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(checksumHigh));
     uint16_t m = uint16_t(_mm_movemask_epi8(mask));
 #if defined(_MSC_VER) || defined(__MINGW32__)
@@ -76,7 +76,7 @@ void incCounter(uint32_t checksum, const char * __restrict__ wordEnd, uint8_t le
 # error "!"
 #endif
         index /= 2;
-        reinterpret_cast<uint16_t *>(&chunk.checksumHigh)[index] = checksumHigh;
+        reinterpret_cast<uint16_t *>(&chunk.checksumsHigh)[index] = checksumHigh;
         words[checksumLow][index] = uint32_t(std::distance(output, o));
         o = std::copy_n(std::prev(wordEnd, len), len, o);
         *o++ = '\0';
@@ -167,12 +167,9 @@ static void findPerfectHash()
     timer.report("collect words");
     fprintf(stderr, "%zu words read\n", words.size());
 
-    std::stable_sort(std::begin(words), std::end(words), [](auto && lhs, auto && rhs) { return lhs.size() < rhs.size(); });
-    timer.report("sort words by length");
-
-    constexpr auto hashTableOrder = 17;
-    constexpr auto maxCollisions = 8;
-    const auto statusPeriod = 1000 / omp_get_num_threads();
+    constexpr auto hashTableOrder = kHashTableOrder;
+    constexpr auto maxCollisions = std::extent_v<decltype(Chunk::count)>;
+    const auto printStatusPeriod = 1000 / omp_get_num_threads();
     int iterationCount = 0;
     size_t maxPrefix = 0;
     std::unordered_set<uint32_t> hashesFull;
@@ -213,7 +210,7 @@ static void findPerfectHash()
                 fprintf(stderr, "FOUND: iterationCount %i ; initialChecksum = %u ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n", iterationCount, initialChecksum, collision, hashTableOrder, timer.dt(), omp_get_thread_num());
             }
         }
-        if ((++iterationCount % statusPeriod) == 0) {
+        if ((++iterationCount % printStatusPeriod) == 0) {
             fprintf(stderr, "failed at %zu of %zu\n", std::exchange(maxPrefix, 0), words.size());
             fprintf(stderr, "status: totalIterationCount %i ; tid %i ; initialChecksum %u ; time %.3lf\n", iterationCount * omp_get_num_threads(), omp_get_thread_num(), initialChecksum, timer.dt());
         }
