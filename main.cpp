@@ -101,43 +101,16 @@ void countWords()
         __m128i str = _mm_load_si128(reinterpret_cast<const __m128i *>(in));
         __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
-        uint32_t m = uint32_t(_mm_movemask_epi8(mask)) | 0xFFFF0000u;
-        static constexpr void * labels[] = {
-            &&byte0,
-            &&byte1,
-            &&byte2,
-            &&byte3,
-            &&byte4,
-            &&byte5,
-            &&byte6,
-            &&byte7,
-            &&byte8,
-            &&byte9,
-            &&byte10,
-            &&byte11,
-            &&byte12,
-            &&byte13,
-            &&byte14,
-            &&byte15,
-            &&byte16,
-        };
-#define MAKE_LABEL(id) byte ## id
-#define BYTE(offset)                                                                                \
-        MAKE_LABEL(offset): if ((m & (1u << offset)) == 0) {                                        \
-            assert(len != std::numeric_limits<decltype(len)>::max());                               \
-            ++len;                                                                                  \
-            if constexpr ((offset % 4) == 0) {                                                      \
-                if ((m & (0b1111 << offset)) == 0) {                                                \
-                    checksum = _mm_crc32_u32(checksum, _mm_extract_epi32(lowercase, offset / 4));   \
-                    goto *labels[offset + 4];                                                       \
-                }                                                                                   \
-            } else {                                                                                \
-                checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset));             \
-            }                                                                                       \
-        } else if (len != 0) {                                                                      \
-            incCounter(checksum, in + offset, len);                                                 \
-            len = 0;                                                                                \
-            checksum = kInitialChecksum;                                                            \
+        uint16_t m = uint16_t(_mm_movemask_epi8(mask));
+#define BYTE(offset)                                                                    \
+        if ((m & (1u << offset)) == 0) {                                                \
+            assert(len != std::numeric_limits<decltype(len)>::max());                   \
+            ++len;                                                                      \
+            checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset));     \
+        } else if (len != 0) {                                                          \
+            incCounter(checksum, in + offset, len);                                     \
+            len = 0;                                                                    \
+            checksum = kInitialChecksum;                                                \
         }
         BYTE(0);
         BYTE(1);
@@ -155,9 +128,7 @@ void countWords()
         BYTE(13);
         BYTE(14);
         BYTE(15);
-        byte16:;
 #undef BYTE
-#undef MAKE_LABEL
     }
     if (len != 0) {
         incCounter(checksum, i, len);
@@ -222,7 +193,6 @@ static void findPerfectHash()
         if (bad) {
             hashesFull.clear();
         } else {
-            bool bad = false;
             uint8_t collision = 0;
             hashesLow.resize(size_t(1) << hashTableOrder);
             size_t prefix = 0;
@@ -280,7 +250,8 @@ int main(int argc, char * argv[])
         assert(size < std::extent_v<decltype(input)>);
         fprintf(stderr, "input size = %zu bytes\n", size);
 
-        i += ((size + sizeof(__m128i) - 1) / sizeof(__m128i)) * sizeof(__m128i);
+        constexpr size_t batchSize = sizeof(__m128i);
+        i += ((size + batchSize - 1) / batchSize) * batchSize;
         std::fill(input + size, i, '\0');
     }
     timer.report("read input");
