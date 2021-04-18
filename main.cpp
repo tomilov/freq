@@ -11,6 +11,11 @@
 #include <utility>
 #include <vector>
 
+#include <bitset>
+#include <set>
+#include <unordered_map>
+#include <unordered_set>
+
 #include <cstdio>
 #include <cstdlib>
 
@@ -22,6 +27,8 @@
 # error "!"
 #endif
 
+#include <omp.h>
+
 namespace
 {
 alignas(__m128i) char input[1u << 29];
@@ -29,7 +36,7 @@ auto i = input;
 
 constexpr uint32_t kHardwareConstructiveInterferenceSize = 64;
 
-constexpr uint32_t kInitialChecksum = 23; // 937506, 250008, 750009, 375010, 250014, 62519, 23, 875034, 750040
+constexpr uint32_t kInitialChecksum = 10675;
 constexpr uint16_t kDefaultChecksumHigh = 1u << 15;
 
 #pragma pack(push, 1)
@@ -41,17 +48,17 @@ struct alignas(kHardwareConstructiveInterferenceSize) Chunk
 #pragma pack(pop)
 static_assert(sizeof(Chunk) == kHardwareConstructiveInterferenceSize);
 
-constexpr auto hashTableOrder = std::numeric_limits<uint16_t>::digits + 2; // one bit for kDefaultChecksumHigh and one another to guarantee that <= 8 collisions per chunk is feasible for the seed (kInitialChecksum)
-Chunk hashTable[1u << hashTableOrder];
+constexpr auto kHashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit window for kDefaultChecksumHigh
+Chunk hashTable[1u << kHashTableOrder];
 alignas(__m128i) char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
 auto o = output + 1; // words[i][j] == std::distance(output, o) is 0 only for unused hashes
 alignas(kHardwareConstructiveInterferenceSize) uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
 
 void incCounter(uint32_t checksum, const char * __restrict__ wordEnd, uint8_t len)
 {
-    uint32_t checksumLow = checksum & ((1u << hashTableOrder) - 1u);
+    uint32_t checksumLow = checksum & ((1u << kHashTableOrder) - 1u);
     Chunk & chunk = hashTable[checksumLow];
-    uint16_t checksumHigh = checksum >> hashTableOrder;
+    uint16_t checksumHigh = checksum >> kHashTableOrder;
     __m128i checksumsHigh = _mm_load_si128(&chunk.checksumHigh);
     uint16_t m = uint16_t(_mm_movemask_epi8(_mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(checksumHigh))));
 
@@ -101,15 +108,15 @@ void countWords()
         __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
         if ((true)) {
-            int m = _mm_movemask_epi8(mask);
+            uint16_t m = uint16_t(_mm_movemask_epi8(mask));
 #define BYTE(offset)                                                                    \
-            if ((m & (1 << offset)) == 0) {                                             \
+            if ((m & (1u << offset)) == 0) {                                            \
                 assert(len != std::numeric_limits<decltype(len)>::max());               \
                 ++len;                                                                  \
                 checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset)); \
             } else {                                                                    \
                 if (len > 0) {                                                          \
-                    incCounter(checksum, in + offset, len);                              \
+                    incCounter(checksum, in + offset, len);                             \
                     len = 0;                                                            \
                     checksum = kInitialChecksum;                                        \
                 }                                                                       \
@@ -155,6 +162,158 @@ void countWords()
     }
 }
 
+void findPerfectHash()
+{
+    Timer timer;
+
+    for (auto in = input; in < i; in += sizeof(__m128i)) {
+        __m128i str = _mm_load_si128(reinterpret_cast<const __m128i *>(in));
+        __m128i lowercase = _mm_add_epi8(str, _mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')));
+        __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
+        _mm_store_si128(reinterpret_cast<__m128i *>(in), _mm_andnot_si128(mask, lowercase));
+    }
+    timer.report("tolower input");
+
+    const auto getWords = []() -> std::vector<std::string_view>
+    {
+        std::set<std::string_view> words;
+        auto lo = std::find(input, i, '\0');
+        while (lo != i) {
+            auto hi = std::find_if(lo, i, [](char c) { return c != '\0'; });
+            lo = std::find(hi, i, '\0');
+            words.emplace(hi, lo);
+        }
+        return {std::begin(words), std::end(words)};
+    };
+    auto words = getWords();
+    timer.report("collect words");
+    fprintf(stderr, "%zu words read\n", words.size());
+
+    std::stable_sort(std::begin(words), std::end(words), [](auto && lhs, auto && rhs) { return lhs.size() < rhs.size(); });
+    timer.report("sort words by length");
+
+    constexpr auto hashTableOrder = 17;
+    constexpr auto maxCollisions = 8;
+    const auto statusPeriod = 1000 / omp_get_num_threads();
+    int iterationCount = 0;
+    size_t maxPrefix = 0;
+    std::unordered_set<uint32_t> hashesFull;
+    std::vector<uint8_t> hashesLow;
+#pragma omp parallel for firstprivate(timer, iterationCount, maxPrefix, hashesFull, hashesLow) schedule(static, 1)
+    for (uint32_t initialChecksum = 0; initialChecksum <= std::numeric_limits<uint32_t>::max(); ++initialChecksum) {
+        bool bad = false;
+        for (const auto & word : words) {
+            uint32_t hash = initialChecksum;
+            for (char c : word) {
+                hash = _mm_crc32_u8(hash, c);
+            }
+            if (!hashesFull.insert(hash).second) {
+                bad = true;
+                break;
+            }
+        }
+        if (bad) {
+            hashesFull.clear();
+        } else {
+            std::vector<uint32_t> hashesFullArray(std::begin(hashesFull), std::end(hashesFull));
+            hashesFull.clear();
+
+            // check all cheap permutations
+            for (int shift = 0; shift < std::numeric_limits<uint32_t>::digits; ++shift) {
+                bool bad = false;
+                uint8_t collision = 0;
+                hashesLow.resize(size_t(1) << hashTableOrder);
+                size_t prefix = 0;
+                for (uint32_t hash : hashesFullArray) {
+                    ++prefix;
+                    collision = std::max(collision, ++hashesLow[_rotr(hash, shift) & ((1u << hashTableOrder) - 1u)]);
+                    if (collision > maxCollisions) {
+                        bad = true;
+                        break;
+                    }
+                }
+                if (prefix > maxPrefix) {
+                    maxPrefix = prefix;
+                }
+                hashesLow.clear();
+                if (!bad) {
+                    fprintf(stderr, "FOUND: iterationCount %i ; initialChecksum = %u ; shift = %i ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n", iterationCount, initialChecksum, shift, collision, hashTableOrder, timer.dt(), omp_get_thread_num());
+                }
+            }
+            for (int shift = 0; shift < std::numeric_limits<uint32_t>::digits; ++shift) {
+                bool bad = false;
+                uint8_t collision = 0;
+                hashesLow.resize(size_t(1) << hashTableOrder);
+                size_t prefix = 0;
+                for (uint32_t hash : hashesFullArray) {
+                    ++prefix;
+                    collision = std::max(collision, ++hashesLow[_mm_crc32_u32(initialChecksum, _rotr(hash, shift)) & ((1u << hashTableOrder) - 1u)]);
+                    if (collision > maxCollisions) {
+                        bad = true;
+                        break;
+                    }
+                }
+                if (prefix > maxPrefix) {
+                    maxPrefix = prefix;
+                }
+                hashesLow.clear();
+                if (!bad) {
+                    fprintf(stderr, "FOUND: iterationCount %i ; initialChecksum = %u ; shift crc32 = %i ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n", iterationCount, initialChecksum, shift, collision, hashTableOrder, timer.dt(), omp_get_thread_num());
+                }
+            }
+            for (int shift = 0; shift < std::numeric_limits<uint32_t>::digits; ++shift) {
+                bool bad = false;
+                uint8_t collision = 0;
+                hashesLow.resize(size_t(1) << hashTableOrder);
+                size_t prefix = 0;
+                for (uint32_t hash : hashesFullArray) {
+                    ++prefix;
+                    collision = std::max(collision, ++hashesLow[uint32_t(_bswap(_rotr(hash, shift))) & ((1u << hashTableOrder) - 1u)]);
+                    if (collision > maxCollisions) {
+                        bad = true;
+                        break;
+                    }
+                }
+                if (prefix > maxPrefix) {
+                    maxPrefix = prefix;
+                }
+                hashesLow.clear();
+                if (!bad) {
+                    fprintf(stderr, "FOUND: iterationCount %i ; initialChecksum = %u ; bswap shift = %i ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n", iterationCount, initialChecksum, shift, collision, hashTableOrder, timer.dt(), omp_get_thread_num());
+                }
+            }
+            for (int shift = 0; shift < std::numeric_limits<uint32_t>::digits; ++shift) {
+                if ((shift % 8) == 0) {
+                    continue;
+                }
+                bool bad = false;
+                uint8_t collision = 0;
+                hashesLow.resize(size_t(1) << hashTableOrder);
+                size_t prefix = 0;
+                for (uint32_t hash : hashesFullArray) {
+                    ++prefix;
+                    collision = std::max(collision, ++hashesLow[_rotr(_bswap(hash), shift) & ((1u << hashTableOrder) - 1u)]);
+                    if (collision > maxCollisions) {
+                        bad = true;
+                        break;
+                    }
+                }
+                if (prefix > maxPrefix) {
+                    maxPrefix = prefix;
+                }
+                hashesLow.clear();
+                if (!bad) {
+                    fprintf(stderr, "FOUND: iterationCount %i ; initialChecksum = %u ; shift bswap = %i ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n", iterationCount, initialChecksum, shift, collision, hashTableOrder, timer.dt(), omp_get_thread_num());
+                }
+            }
+        }
+        if ((++iterationCount % statusPeriod) == 0) {
+            fprintf(stderr, "failed at %zu of %zu\n", maxPrefix, words.size());
+            fprintf(stderr, "status: totalIterationCount %i ; tid %i ; initialChecksum %u ; time %.3lf\n", iterationCount * omp_get_num_threads(), omp_get_thread_num(), initialChecksum, timer.dt());
+        }
+    }
+}
+
 } // namespace
 
 int main(int argc, char * argv[])
@@ -192,6 +351,11 @@ int main(int argc, char * argv[])
     }
     timer.report("read input");
 
+    if ((true)) {
+        findPerfectHash();
+        return 0;
+    }
+
     countWords();
     timer.report("count words");
 
@@ -200,7 +364,7 @@ int main(int argc, char * argv[])
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('A')), _mm_cmpgt_epi8(str, _mm_set1_epi8('Z')));
         _mm_store_si128(reinterpret_cast<__m128i *>(out), _mm_add_epi8(_mm_andnot_si128(mask, _mm_set1_epi8('a' - 'A')), str));
     }
-    timer.report("lowercase output");
+    timer.report("tolower output");
 
     std::vector<std::pair<uint32_t, std::string_view>> rank;
     rank.reserve(std::extent_v<decltype(words)> * std::extent_v<decltype(words), 1>);
