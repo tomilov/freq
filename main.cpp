@@ -29,26 +29,23 @@ namespace
 alignas(__m128i) char input[1u << 29];
 auto i = input;
 
-constexpr uint32_t kHardwareConstructiveInterferenceSize = 64;
-
 // perfect hash seeds: 10675, 98363, 102779, 103674, 105067, 194036, 242662, 290547, 313385, ...
 constexpr uint32_t kInitialChecksum = 10675;
 constexpr uint16_t kDefaultChecksumHigh = ~uint16_t(0);
 
 #pragma pack(push, 1)
-struct alignas(kHardwareConstructiveInterferenceSize) Chunk
+struct Chunk
 {
     __m128i checksumHigh = _mm_set1_epi16(kDefaultChecksumHigh);
     int count[sizeof(__m128i) / sizeof(uint16_t)] = {};
 };
 #pragma pack(pop)
-static_assert(sizeof(Chunk) == kHardwareConstructiveInterferenceSize);
 
 constexpr auto kHashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit window for kDefaultChecksumHigh
 Chunk hashTable[1u << kHashTableOrder];
 alignas(__m128i) char output[std::extent_v<decltype(input)> + 2]; // provide space for leading unused char and trailing null
 auto o = output + 1; // words[i][j] == std::distance(output, o) is 0 only for unused hashes
-alignas(kHardwareConstructiveInterferenceSize) int words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
+int words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
 
 #ifdef _MSC_VER
 void incCounter(uint32_t checksum, const char * wordEnd, uint8_t len)
@@ -70,7 +67,7 @@ void incCounter(uint32_t checksum, const char * __restrict__ wordEnd, uint8_t le
 # error "!"
 #endif
     if (m == 0) {
-        m = uint16_t(_mm_movemask_epi8(checksumsHigh)) & 0b1010101010101010;
+        m = uint16_t(_mm_movemask_epi8(checksumsHigh)) & 0b1010101010101010u;
 #if defined(_MSC_VER) || defined(__MINGW32__)
         _BitScanForward(&index, m);
 #elif defined(__clang__) || defined(__GNUG__)
@@ -133,7 +130,7 @@ void countWords()
         BYTE(15);
 #undef BYTE
     }
-    if (len > 0) {
+    if (len != 0) {
         incCounter(checksum, i, len);
     }
 }
@@ -142,7 +139,6 @@ void countWords()
 
 #include <set>
 #include <unordered_set>
-#include <unordered_map>
 
 static void findPerfectHash()
 {
@@ -251,9 +247,9 @@ int main(int argc, char * argv[])
     timer.report("open files");
 
     {
-        auto size = uint32_t(std::fread(input, sizeof *input, std::extent_v<decltype(input)>, inputFile.get()));
+        size_t size = std::fread(input, sizeof *input, std::extent_v<decltype(input)>, inputFile.get());
         assert(size < std::extent_v<decltype(input)>);
-        fprintf(stderr, "input size = %u bytes\n", size);
+        fprintf(stderr, "input size = %zu bytes\n", size);
 
         i += ((size + sizeof(__m128i) - 1) / sizeof(__m128i)) * sizeof(__m128i);
         std::fill(input + size, i, '\0');
@@ -262,7 +258,7 @@ int main(int argc, char * argv[])
 
     if ((false)) {
         findPerfectHash();
-        return 0;
+        return EXIT_SUCCESS;
     }
 
     countWords();
