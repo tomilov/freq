@@ -50,7 +50,11 @@ alignas(__m128i) char output[std::extent_v<decltype(input)> + 2]; // provide spa
 auto o = output + 1; // words[i][j] == std::distance(output, o) is 0 only for unused hashes
 alignas(kHardwareConstructiveInterferenceSize) uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
 
+#ifdef _MSC_VER
+void incCounter(uint32_t checksum, const char * wordEnd, uint8_t len)
+#else
 void incCounter(uint32_t checksum, const char * __restrict__ wordEnd, uint8_t len)
+#endif
 {
     uint32_t checksumLow = checksum & ((1u << kHashTableOrder) - 1u);
     Chunk & chunk = hashTable[checksumLow];
