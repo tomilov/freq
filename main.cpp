@@ -31,12 +31,12 @@ auto i = input;
 
 // perfect hash seeds: 10675, 98363, 102779, 103674, 105067, 194036, 242662, 290547, 313385, ...
 constexpr uint32_t kInitialChecksum = 10675;
-constexpr uint16_t kDefaultChecksumHigh = ~uint16_t(0);
+constexpr uint16_t kDefaultChecksumHigh = 0xFFFFu;
 
 #pragma pack(push, 1)
 struct Chunk
 {
-    __m128i checksumsHigh = _mm_set1_epi16(kDefaultChecksumHigh);
+    __m128i checksumsHigh = _mm_set1_epi16(int16_t(kDefaultChecksumHigh));
     int count[sizeof(__m128i) / sizeof(uint16_t)] = {};
 };
 #pragma pack(pop)
@@ -57,7 +57,7 @@ void incCounter(uint32_t checksum, const char * __restrict__ wordEnd, uint8_t le
     Chunk & chunk = hashTable[checksumLow];
     uint16_t checksumHigh = checksum >> kHashTableOrder;
     __m128i checksumsHigh = _mm_load_si128(&chunk.checksumsHigh);
-    __m128i mask = _mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(checksumHigh));
+    __m128i mask = _mm_cmpeq_epi16(checksumsHigh, _mm_set1_epi16(int16_t(checksumHigh)));
     uint16_t m = uint16_t(_mm_movemask_epi8(mask));
 #if defined(_MSC_VER) || defined(__MINGW32__)
     unsigned long index;
@@ -77,7 +77,7 @@ void incCounter(uint32_t checksum, const char * __restrict__ wordEnd, uint8_t le
 #endif
         index /= 2;
         reinterpret_cast<uint16_t *>(&chunk.checksumsHigh)[index] = checksumHigh;
-        words[checksumLow][index] = uint32_t(std::distance(output, o));
+        words[checksumLow][index] = int(std::distance(output, o));
         o = std::copy_n(std::prev(wordEnd, len), len, o);
         *o++ = '\0';
     } else {
@@ -102,32 +102,32 @@ void countWords()
         __m128i lowercase = _mm_add_epi8(_mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')), str);
         __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
         uint16_t m = uint16_t(_mm_movemask_epi8(mask));
-#define BYTE(offset)                                                                    \
-        if ((m & (1u << offset)) == 0) {                                                \
-            assert(len != std::numeric_limits<decltype(len)>::max());                   \
-            ++len;                                                                      \
-            checksum = _mm_crc32_u8(checksum, _mm_extract_epi8(lowercase, offset));     \
-        } else if (len != 0) {                                                          \
-            incCounter(checksum, in + offset, len);                                     \
-            len = 0;                                                                    \
-            checksum = kInitialChecksum;                                                \
+#define BYTE(offset)                                                                            \
+        if ((m & (1u << offset)) == 0) {                                                        \
+            assert(len != std::numeric_limits<decltype(len)>::max());                           \
+            ++len;                                                                              \
+            checksum = _mm_crc32_u8(checksum, uint8_t(_mm_extract_epi8(lowercase, offset)));    \
+        } else if (len != 0) {                                                                  \
+            incCounter(checksum, in + offset, len);                                             \
+            len = 0;                                                                            \
+            checksum = kInitialChecksum;                                                        \
         }
-        BYTE(0);
-        BYTE(1);
-        BYTE(2);
-        BYTE(3);
-        BYTE(4);
-        BYTE(5);
-        BYTE(6);
-        BYTE(7);
-        BYTE(8);
-        BYTE(9);
-        BYTE(10);
-        BYTE(11);
-        BYTE(12);
-        BYTE(13);
-        BYTE(14);
-        BYTE(15);
+        BYTE(0)
+        BYTE(1)
+        BYTE(2)
+        BYTE(3)
+        BYTE(4)
+        BYTE(5)
+        BYTE(6)
+        BYTE(7)
+        BYTE(8)
+        BYTE(9)
+        BYTE(10)
+        BYTE(11)
+        BYTE(12)
+        BYTE(13)
+        BYTE(14)
+        BYTE(15)
 #undef BYTE
     }
     if (len != 0) {
@@ -159,7 +159,11 @@ static void findPerfectHash()
         while (lo != i) {
             auto hi = std::find_if(lo, i, [](char c) { return c != '\0'; });
             lo = std::find(hi, i, '\0');
+#if _MSC_VER
+            words.emplace(hi, size_t(std::distance(hi, lo)));
+#else
             words.emplace(hi, lo);
+#endif
         }
         return {std::begin(words), std::end(words)};
     };
@@ -175,12 +179,12 @@ static void findPerfectHash()
     std::unordered_set<uint32_t> hashesFull;
     std::vector<uint8_t> hashesLow;
 #pragma omp parallel for firstprivate(timer, iterationCount, maxPrefix, hashesFull, hashesLow) schedule(static, 1)
-    for (uint32_t initialChecksum = 0; initialChecksum <= std::numeric_limits<uint32_t>::max(); ++initialChecksum) {
+    for (int32_t initialChecksum = 0; initialChecksum < std::numeric_limits<int32_t>::max(); ++initialChecksum) { // MSVC: error C3016: 'initialChecksum': index variable in OpenMP 'for' statement must have signed integral type
         bool bad = false;
         for (const auto & word : words) {
-            uint32_t hash = initialChecksum;
+            auto hash = uint32_t(initialChecksum);
             for (char c : word) {
-                hash = _mm_crc32_u8(hash, c);
+                hash = _mm_crc32_u8(hash, uint8_t(c));
             }
             if (!hashesFull.insert(hash).second) {
                 bad = true;
@@ -207,12 +211,12 @@ static void findPerfectHash()
             }
             hashesLow.clear();
             if (!bad) {
-                fprintf(stderr, "FOUND: iterationCount %i ; initialChecksum = %u ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n", iterationCount, initialChecksum, collision, hashTableOrder, timer.dt(), omp_get_thread_num());
+                fprintf(stderr, "FOUND: iterationCount %i ; initialChecksum = %u ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n", iterationCount, uint32_t(initialChecksum), collision, hashTableOrder, timer.dt(), omp_get_thread_num());
             }
         }
         if ((++iterationCount % printStatusPeriod) == 0) {
             fprintf(stderr, "failed at %zu of %zu\n", std::exchange(maxPrefix, 0), words.size());
-            fprintf(stderr, "status: totalIterationCount %i ; tid %i ; initialChecksum %u ; time %.3lf\n", iterationCount * omp_get_num_threads(), omp_get_thread_num(), initialChecksum, timer.dt());
+            fprintf(stderr, "status: totalIterationCount %i ; tid %i ; initialChecksum %u ; time %.3lf\n", iterationCount * omp_get_num_threads(), omp_get_thread_num(), uint32_t(initialChecksum), timer.dt());
         }
     }
 }
@@ -275,7 +279,7 @@ int main(int argc, char * argv[])
         for (const auto & w : words) {
             const Chunk & chunk = hashTable[checksumLow];
             uint32_t index = 0;
-            for (uint32_t word : w) {
+            for (int word : w) {
                 if (word != 0) {
                     rank.emplace_back(chunk.count[index], output + word);
                 }
@@ -284,7 +288,7 @@ int main(int argc, char * argv[])
             ++checksumLow;
         }
     }
-    fprintf(stderr, "load factor = %.3lf\n", rank.size() / double(rank.capacity()));
+    fprintf(stderr, "load factor = %.3lf\n", double(rank.size()) / double(rank.capacity()));
     timer.report("collect word counts");
 
     std::sort(std::begin(rank), std::end(rank), [] (auto && lhs, auto && rhs) { return std::tie(rhs.first, lhs.second) < std::tie(lhs.first, rhs.second); });
