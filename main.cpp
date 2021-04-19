@@ -159,10 +159,12 @@ static void findPerfectHash()
         while (lo != i) {
             auto hi = std::find_if(lo, i, [](char c) { return c != '\0'; });
             lo = std::find(hi, i, '\0');
-#if _MSC_VER
+#if defined(_MSC_VER) || defined(__MINGW32__)
             words.emplace(hi, size_t(std::distance(hi, lo)));
-#else
+#elif defined(__clang__) || defined(__GNUG__)
             words.emplace(hi, lo);
+#else
+# error "!"
 #endif
         }
         return {std::begin(words), std::end(words)};
