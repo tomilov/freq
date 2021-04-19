@@ -10,6 +10,7 @@ struct Timer
     using high_resolution_clock = std::chrono::high_resolution_clock;
     using time_point = high_resolution_clock::time_point;
 
+    const char * onScopeExit = "total";
     const time_point start = high_resolution_clock::now();
     time_point timePoint = start;
 
@@ -23,5 +24,5 @@ struct Timer
 
     void report(const char * description, bool absolute = false) { fprintf(stderr, "time (%s) = %.3lf\n", description, dt(absolute)); }
 
-    ~Timer() { report("total", true); }
+    ~Timer() { report(onScopeExit, true); }
 };

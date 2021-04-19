@@ -137,6 +137,14 @@ void countWords()
 
 } // namespace
 
+#ifdef __linux__
+#define RED(s) "\e[3;31m" s "\e[0m"
+#define GREEN(s) "\e[3;32m" s "\e[0m"
+#else
+#define RED(s) s
+#define GREEN(s) s
+#endif
+
 #include <set>
 #include <unordered_set>
 
@@ -154,6 +162,7 @@ static void findPerfectHash()
 
     const auto getWords = []() -> std::vector<std::string_view>
     {
+        size_t wordCount = 0;
         std::set<std::string_view> words;
         auto lo = std::find(input, i, '\0');
         while (lo != i) {
@@ -166,12 +175,17 @@ static void findPerfectHash()
 #else
 # error "!"
 #endif
+            ++wordCount;
         }
+        fprintf(stderr, "%zu words read\n", wordCount);
+        fprintf(stderr, "%zu unique words read\n", words.size());
         return {std::begin(words), std::end(words)};
     };
     auto words = getWords();
     timer.report("collect words");
-    fprintf(stderr, "%zu words read\n", words.size());
+
+    std::stable_sort(std::begin(words), std::end(words), [](auto && lhs, auto && rhs) { return lhs.size() < rhs.size(); });
+    timer.report("sort words by length");
 
     constexpr auto hashTableOrder = kHashTableOrder;
     constexpr auto maxCollisions = std::extent_v<decltype(Chunk::count)>;
@@ -225,7 +239,7 @@ static void findPerfectHash()
 
 int main(int argc, char * argv[])
 {
-    Timer timer;
+    Timer timer{GREEN("total")};
 
     if (argc != 3) {
         fprintf(stderr, "usage: %s in.txt out.txt\n", argv[0]);
@@ -265,7 +279,7 @@ int main(int argc, char * argv[])
     }
 
     countWords();
-    timer.report("count words");
+    timer.report(RED("count words"));
 
     for (auto out = output; out < o; out += sizeof(__m128i)) {
         __m128i str = _mm_load_si128(reinterpret_cast<const __m128i *>(out));
