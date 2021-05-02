@@ -8,11 +8,11 @@
 #include <cstdio>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
-# define FREQ_FORCEINLINE __forceinline
+# define FORCEINLINE __forceinline
 #elif defined(__clang__) || defined(__GNUG__)
-# define FREQ_FORCEINLINE __attribute__((always_inline))
+# define FORCEINLINE __attribute__((always_inline))
 #else
-# define FREQ_FORCEINLINE
+# define FORCEINLINE
 #endif
 
 template<size_t bufferSize = 131072>
@@ -45,7 +45,7 @@ public :
         return true;
     }
 
-    FREQ_FORCEINLINE bool putChar(char c)
+    FORCEINLINE bool putChar(char c)
     {
         *it++ = c;
         if (it == end) {
@@ -56,7 +56,7 @@ public :
         return true;
     }
 
-    FREQ_FORCEINLINE bool print(size_t value)
+    FORCEINLINE bool print(size_t value)
     {
         if (value == 0) {
             if (!putChar('0')) {
@@ -90,7 +90,7 @@ public :
         return true;
     }
 
-    FREQ_FORCEINLINE bool print(const char * s)
+    FORCEINLINE bool print(const char * s)
     {
         while (*s != '\0') {
             if (!putChar(*s++)) {

@@ -11,30 +11,27 @@
 #include <utility>
 #include <vector>
 
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
-# include <intrin.h>
-#elif defined(__clang__) || defined(__GNUG__)
-# include <x86intrin.h>
-#else
-# error "!"
-#endif
-
-#ifdef __GNUG__
-#define LIKELY(x) (__builtin_expect((x), 1))
-#define UNLIKELY(x) (__builtin_expect((x), 0))
-#else
+#include <intrin.h>
 #define LIKELY(x) (x)
 #define UNLIKELY(x) (x)
+#define BSF(index, mask) _BitScanForward(&index, mask)
+#elif defined(__clang__) || defined(__GNUG__)
+#include <x86intrin.h>
+#define LIKELY(x) (__builtin_expect((x), 1))
+#define UNLIKELY(x) (__builtin_expect((x), 0))
+#define BSF(index, mask) index = decltype(index)(__bsfd(mask))
+#else
+#error "!"
 #endif
-
-#include <omp.h>
 
 namespace
 {
-constexpr bool kEnableOpenAddressing = false; // this requires a key comparison
+constexpr bool kEnableOpenAddressing = false; // requires a key comparison
 
 alignas(__m128i) char input[1u << 29];
 auto i = input;
@@ -53,58 +50,48 @@ struct Chunk
 };
 static_assert(alignof(Chunk) == alignof(__m128i), "!");
 
-constexpr auto kHashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit window for kDefaultChecksumHigh
+constexpr auto kHashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit window to distinct kDefaultChecksumHigh
+constexpr uint32_t kHashTableMask = (1u << kHashTableOrder) - 1u;
 Chunk hashTable[1u << kHashTableOrder];
+
 alignas(__m128i) char output[1u << 22] = {};
-auto o = output + 1; // words[i][j] == std::distance(output, o) is 0 for unused hashes only
+auto o = std::next(output); // words[i][j] == std::distance(output, o) is 0 for unused hashes only
 uint32_t words[std::extent_v<decltype(hashTable)>][std::extent_v<decltype(Chunk::count)>] = {};
 
-#ifdef _MSC_VER
-void incCounter(uint32_t hash, const char * wordEnd, uint8_t len)
-#else
-void incCounter(uint32_t hash, const char * __restrict__ wordEnd, uint8_t len)
-#endif
+void toLowerInput()
 {
-    uint32_t hashLow = hash & ((1u << kHashTableOrder) - 1u);
+    for (auto in = input; in < i; in += sizeof(__m128i)) {
+        __m128i str = _mm_load_si128(reinterpret_cast<const __m128i *>(in));
+        __m128i lowercase = _mm_add_epi8(str, _mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')));
+        __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
+        _mm_store_si128(reinterpret_cast<__m128i *>(in), _mm_andnot_si128(mask, lowercase));
+    }
+}
+
+void incCounter(uint32_t hash, const char * __restrict wordEnd, uint8_t len)
+{
+    uint32_t hashLow = hash & kHashTableMask;
     uint32_t hashHigh = hash >> kHashTableOrder;
     for (;;) {
         Chunk & chunk = hashTable[hashLow];
         __m128i hashesHigh = _mm_load_si128(&chunk.hashesHigh);
         __m128i mask = _mm_cmpeq_epi16(hashesHigh, _mm_set1_epi16(int16_t(hashHigh)));
         uint16_t m = uint16_t(_mm_movemask_epi8(mask));
-#if defined(_MSC_VER) || defined(__MINGW32__)
         unsigned long index;
-#elif defined(__clang__) || defined(__GNUG__)
-        int index;
-#else
-# error "!"
-#endif
-        if (LIKELY(m != 0)) {
-#if defined(_MSC_VER) || defined(__MINGW32__)
-            _BitScanForward(&index, m);
-#elif defined(__clang__) || defined(__GNUG__)
-            index = __bsfd(m);
-#else
-# error "!"
-#endif
+        if LIKELY(m != 0) {
+            BSF(index, m);
             index /= 2;
             if (kEnableOpenAddressing && !std::equal(wordEnd - len, wordEnd + 1, output + words[hashLow][index])) {
-                hashLow = (hashLow + 1) & ((1u << kHashTableOrder) - 1u); // linear probing
+                hashLow = (hashLow + 1) & kHashTableMask; // linear probing
                 continue;
             }
         } else {
             m = uint16_t(_mm_movemask_epi8(hashesHigh)) & 0b1010101010101010u;
             if (kEnableOpenAddressing && UNLIKELY(m == 0)) {
-                hashLow = (hashLow + 1) & ((1u << kHashTableOrder) - 1u); // linear probing
+                hashLow = (hashLow + 1) & kHashTableMask; // linear probing
                 continue;
             }
-#if defined(_MSC_VER) || defined(__MINGW32__)
-            _BitScanForward(&index, m);
-#elif defined(__clang__) || defined(__GNUG__)
-            index = __bsfd(m);
-#else
-# error "!"
-#endif
+            BSF(index, m);
             index /= 2;
             reinterpret_cast<uint16_t *>(&chunk.hashesHigh)[index] = hashHigh;
             words[hashLow][index] = uint32_t(std::distance(output, o));
@@ -167,24 +154,24 @@ void countWords()
 #if defined(__linux__) || defined(__APPLE__)
 #define RED(s) "\e[3;31m" s "\e[0m"
 #define GREEN(s) "\e[3;32m" s "\e[0m"
+#define YELLOW(s) "\e[3;33m" s "\e[0m"
 #else
 #define RED(s) s
 #define GREEN(s) s
+#define YELLOW(s) s
 #endif
 
+#if defined(_OPENMP)
 #include <tuple>
 #include <unordered_set>
 
+#include <omp.h>
+
 static void findPerfectHash()
 {
-    Timer timer;
+    Timer timer{GREEN("total")};
 
-    for (auto in = input; in < i; in += sizeof(__m128i)) {
-        __m128i str = _mm_load_si128(reinterpret_cast<const __m128i *>(in));
-        __m128i lowercase = _mm_add_epi8(str, _mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')));
-        __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
-        _mm_store_si128(reinterpret_cast<__m128i *>(in), _mm_andnot_si128(mask, lowercase));
-    }
+    toLowerInput();
     timer.report("tolower input");
 
     const auto getWords = []() -> std::vector<std::string_view>
@@ -205,56 +192,61 @@ static void findPerfectHash()
     auto words = getWords();
     timer.report("collect words");
 
-    std::stable_sort(std::begin(words), std::end(words), [](auto && lhs, auto && rhs) { return std::forward_as_tuple(lhs.size(), lhs) < std::forward_as_tuple(rhs.size(), rhs); });
+    std::sort(std::begin(words), std::end(words), [](auto && lhs, auto && rhs) { return std::forward_as_tuple(lhs.size(), lhs) < std::forward_as_tuple(rhs.size(), rhs); });
     timer.report("sort words");
 
     constexpr auto hashTableOrder = kHashTableOrder;
+    constexpr uint32_t hashTableMask = (1u << hashTableOrder) - 1u;
     constexpr auto maxCollisions = std::extent_v<decltype(Chunk::count)>;
     const auto printStatusPeriod = 1000 / omp_get_num_threads();
-    uint32_t iterationCount = 0;
-    size_t maxPrefix = 0;
-    std::unordered_set<uint32_t> hashesFull;
-    std::vector<uint8_t> hashesLow;
-#pragma omp parallel for firstprivate(timer, iterationCount, maxPrefix, hashesFull, hashesLow) schedule(static, 1)
-    for (int32_t initialChecksum = 0; initialChecksum < std::numeric_limits<int32_t>::max(); ++initialChecksum) { // MSVC: error C3016: 'initialChecksum': index variable in OpenMP 'for' statement must have signed integral type
-        bool bad = false;
-        for (const auto & word : words) {
-            auto hash = uint32_t(initialChecksum);
-            for (char c : word) {
-                hash = _mm_crc32_u8(hash, uint8_t(c));
-            }
-            if (!hashesFull.insert(hash).second) {
-                bad = true;
-                break;
-            }
-        }
-        uint8_t collision = 0;
-        if (!kEnableOpenAddressing && !bad) {
-            hashesLow.resize(size_t(1) << hashTableOrder);
-            size_t prefix = 0;
-            for (uint32_t hash : hashesFull) {
-                ++prefix;
-                collision = std::max(collision, ++hashesLow[hash & ((1u << hashTableOrder) - 1u)]);
-                if (collision > maxCollisions) {
+#pragma omp parallel firstprivate(timer)
+    {
+        uint32_t iterationCount = 0;
+        size_t maxPrefix = 0;
+        std::unordered_set<uint32_t> hashesFull;
+        std::vector<uint8_t> hashesLow;
+#pragma omp for schedule(static, 1)
+        for (int32_t initialChecksum = 0; initialChecksum < std::numeric_limits<int32_t>::max(); ++initialChecksum) { // MSVC: error C3016: 'initialChecksum': index variable in OpenMP 'for' statement must have signed integral type
+            bool bad = false;
+            for (const auto & word : words) {
+                auto hash = uint32_t(initialChecksum);
+                for (char c : word) {
+                    hash = _mm_crc32_u8(hash, uint8_t(c));
+                }
+                if (!hashesFull.insert(hash).second) {
                     bad = true;
                     break;
                 }
             }
-            if (prefix > maxPrefix) {
-                maxPrefix = prefix;
+            uint8_t collision = 0;
+            if (!kEnableOpenAddressing && !bad) {
+                hashesLow.resize(size_t(1) << hashTableOrder);
+                size_t prefix = 0;
+                for (uint32_t hash : hashesFull) {
+                    ++prefix;
+                    collision = std::max(collision, ++hashesLow[hash & hashTableMask]);
+                    if (collision > maxCollisions) {
+                        bad = true;
+                        break;
+                    }
+                }
+                if (prefix > maxPrefix) {
+                    maxPrefix = prefix;
+                }
+                hashesLow.clear();
             }
-            hashesLow.clear();
-        }
-        hashesFull.clear();
-        if (!bad) {
-            fprintf(stderr, "FOUND: iterationCount %u ; initialChecksum = %u ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n", iterationCount, uint32_t(initialChecksum), collision, hashTableOrder, timer.dt(), omp_get_thread_num());
-        }
-        if ((++iterationCount % printStatusPeriod) == 0) {
-            fprintf(stderr, "failed at %zu of %zu\n", std::exchange(maxPrefix, 0), words.size());
-            fprintf(stderr, "status: totalIterationCount ~%u ; tid %i ; initialChecksum %u ; time %.3lf\n", iterationCount * omp_get_num_threads(), omp_get_thread_num(), uint32_t(initialChecksum), timer.dt());
+            hashesFull.clear();
+            if (!bad) {
+                fprintf(stderr, YELLOW("FOUND: iterationCount %u ; initialChecksum = %u ; collision = %hhu ; hashTableOrder %u ; time %.3lf ; tid %i\n"), iterationCount, uint32_t(initialChecksum), collision, hashTableOrder, timer.dt(), omp_get_thread_num());
+            }
+            if ((++iterationCount % printStatusPeriod) == 0) {
+                fprintf(stderr, "failed at %zu of %zu\n", std::exchange(maxPrefix, 0), words.size());
+                fprintf(stderr, "status: totalIterationCount ~%u ; tid %i ; initialChecksum %u ; time %.3lf\n", iterationCount * omp_get_num_threads(), omp_get_thread_num(), uint32_t(initialChecksum), timer.dt());
+            }
         }
     }
 }
+#endif
 
 int main(int argc, char * argv[])
 {
@@ -297,18 +289,15 @@ int main(int argc, char * argv[])
     }
     timer.report("read input");
 
+#if defined(_OPENMP)
     if ((false)) {
         findPerfectHash();
         return EXIT_SUCCESS;
     }
+#endif
 
     if (kEnableOpenAddressing) {
-        for (auto in = input; in < i; in += sizeof(__m128i)) {
-            __m128i str = _mm_load_si128(reinterpret_cast<const __m128i *>(in));
-            __m128i lowercase = _mm_add_epi8(str, _mm_and_si128(_mm_cmplt_epi8(str, _mm_set1_epi8('a')), _mm_set1_epi8('a' - 'A')));
-            __m128i mask = _mm_or_si128(_mm_cmplt_epi8(lowercase, _mm_set1_epi8('a')), _mm_cmpgt_epi8(lowercase, _mm_set1_epi8('z')));
-            _mm_store_si128(reinterpret_cast<__m128i *>(in), _mm_andnot_si128(mask, lowercase));
-        }
+        toLowerInput();
         timer.report("tolower input");
     }
 
