@@ -19,11 +19,13 @@
 #include <intrin.h>
 #define LIKELY(x) (x)
 #define UNLIKELY(x) (x)
+#define UNPREDICTABLE(x) (x)
 #define BSF(index, mask) _BitScanForward(&index, mask)
 #elif defined(__clang__) || defined(__GNUG__)
 #include <x86intrin.h>
 #define LIKELY(x) (__builtin_expect((x), 1))
 #define UNLIKELY(x) (__builtin_expect((x), 0))
+#define UNPREDICTABLE(x) (__builtin_unpredictable(x))
 #define BSF(index, mask) index = decltype(index)(__bsfd(mask))
 #else
 #error "!"
@@ -43,12 +45,12 @@ auto i = input;
 constexpr uint32_t kInitialChecksum = 10675;
 constexpr uint16_t kDefaultChecksumHigh = 0xFFFFu;
 
-struct Chunk
+struct alignas(64) Chunk
 {
     __m128i hashesHigh;
     uint32_t count[sizeof(__m128i) / sizeof(uint16_t)];
 };
-static_assert(alignof(Chunk) == alignof(__m128i), "!");
+static_assert((alignof(Chunk) % alignof(__m128i)) == 0, "!");
 
 constexpr auto kHashTableOrder = std::numeric_limits<uint16_t>::digits + 1; // one bit window to distinct kDefaultChecksumHigh
 constexpr uint32_t kHashTableMask = (1u << kHashTableOrder) - 1u;
@@ -68,7 +70,7 @@ void toLowerInput()
     }
 }
 
-void incCounter(uint32_t hash, const char * __restrict wordEnd, uint8_t len)
+void incCounter(uint32_t hash, const char * __restrict wordEnd, uint32_t len)
 {
     uint32_t hashLow = hash & kHashTableMask;
     uint32_t hashHigh = hash >> kHashTableOrder;
@@ -81,7 +83,7 @@ void incCounter(uint32_t hash, const char * __restrict wordEnd, uint8_t len)
         if LIKELY(m != 0) {
             BSF(index, m);
             index /= 2;
-            if (kEnableOpenAddressing && !std::equal(wordEnd - len, wordEnd + 1, output + words[hashLow][index])) {
+            if (kEnableOpenAddressing && UNLIKELY(!std::equal(wordEnd - len, wordEnd + 1, output + words[hashLow][index]))) {
                 hashLow = (hashLow + 1) & kHashTableMask; // linear probing
                 continue;
             }
@@ -105,8 +107,8 @@ void incCounter(uint32_t hash, const char * __restrict wordEnd, uint8_t len)
 void countWords()
 {
     uint32_t hash = kInitialChecksum;
-    uint8_t len = 0;
-    for (auto in = input; in < i; in += sizeof(__m128i)) {
+    uint32_t len = 0;
+    for (auto in = input; LIKELY(in < i); in += sizeof(__m128i)) {
         __m128i str = _mm_load_si128(reinterpret_cast<const __m128i *>(in));
         __m128i mask;
         if (kEnableOpenAddressing) {
@@ -117,11 +119,10 @@ void countWords()
         }
         uint16_t m = uint16_t(_mm_movemask_epi8(mask));
 #define BYTE(offset)                                                                            \
-        if ((m & (1u << offset)) == 0) {                                                        \
-            assert(len != std::numeric_limits<decltype(len)>::max());                           \
+        if UNPREDICTABLE((m & (1u << offset)) == 0) {                                           \
             ++len;                                                                              \
             hash = _mm_crc32_u8(hash, uint8_t(_mm_extract_epi8(str, offset)));                  \
-        } else if (len != 0) {                                                                  \
+        } else if UNPREDICTABLE(len != 0) {                                                     \
             incCounter(hash, in + offset, len);                                                 \
             len = 0;                                                                            \
             hash = kInitialChecksum;                                                            \
