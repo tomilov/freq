@@ -16,10 +16,19 @@ struct Timer
         using std::chrono::duration_cast;
         using std::chrono::nanoseconds;
         auto stop = high_resolution_clock::now();
-        return duration_cast<nanoseconds>(stop - (absolute ? start : std::exchange(timePoint, stop))).count() * 1E-9;
+        return duration_cast<nanoseconds>(
+                   stop - (absolute ? start : std::exchange(timePoint, stop)))
+                   .count() *
+               1E-9;
     }
 
-    void report(const char * description, bool absolute = false) { fprintf(stderr, "time (%s) = %.3lf\n", description, dt(absolute)); }
+    void report(const char * description, bool absolute = false)
+    {
+        fprintf(stderr, "time (%s) = %.3lf\n", description, dt(absolute));
+    }
 
-    ~Timer() { report("total", true); }
+    ~Timer()
+    {
+        report("total", true);
+    }
 };

@@ -1,11 +1,11 @@
 #include "io.hpp"
 #include "timer.hpp"
 
-#include <utility>
-#include <memory>
-#include <vector>
-#include <iterator>
 #include <algorithm>
+#include <iterator>
+#include <memory>
+#include <utility>
+#include <vector>
 
 #include <cstring>
 #include <cstdlib>
@@ -79,16 +79,19 @@ int main(int argc, char * argv[])
     std::vector<uchar> words;
 
     std::vector<uchar> word;
-    auto traverseTrie = [&] (const auto & traverseTrie, decltype((std::as_const(trie).front().children)) children) -> void
-    {
+    auto traverseTrie =
+        [&](const auto & traverseTrie,
+            decltype((std::as_const(trie).front().children)) children) -> void {
         int c = 0;
         for (size_type index : children) {
             if (index != 0) {
                 const TrieNode & node = trie[index];
                 word.push_back(uchar('a' + c));
                 if (node.count != 0) {
-                    rank.emplace_back(size_type(node.count), size_type(words.size()));
-                    words.insert(words.cend(), std::cbegin(word), std::cend(word));
+                    rank.emplace_back(size_type(node.count),
+                                      size_type(words.size()));
+                    words.insert(words.cend(), std::cbegin(word),
+                                 std::cend(word));
                     words.push_back(uchar('\0'));
                 }
                 traverseTrie(traverseTrie, node.children);
@@ -99,7 +102,8 @@ int main(int argc, char * argv[])
     };
     traverseTrie(traverseTrie, trie.front().children);
     assert(word.empty());
-    fprintf(stderr, "word count = %zu, length = %zu\n", rank.size(), words.size());
+    fprintf(stderr, "word count = %zu, length = %zu\n", rank.size(),
+            words.size());
 
     timer.report("recover words from trie");
 

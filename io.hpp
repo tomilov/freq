@@ -8,12 +8,12 @@
 #include <cstdio>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
-# include <immintrin.h>
+#include <immintrin.h>
 #elif defined(__clang__) || defined(__GNUG__)
-# include <x86intrin.h>
-# ifndef __forceinline
-#  define __forceinline __attribute__((always_inline))
-# endif
+#include <x86intrin.h>
+#ifndef __forceinline
+#define __forceinline __attribute__((always_inline))
+#endif
 #else
 #error "!"
 #endif
@@ -25,7 +25,7 @@ class InputStream
 {
     static_assert((bufferSize % sizeof(__m128i)) == 0, "!");
 
-public :
+public:
     InputStream(std::FILE * inputFile)
         : inputFile{inputFile}
     {
@@ -34,29 +34,34 @@ public :
 
     // non-moveable/non-copyable due to `it` and `end` points to member's data
     InputStream(const InputStream &) = delete;
-    InputStream & operator = (const InputStream &) = delete;
+    InputStream & operator=(const InputStream &) = delete;
 
     bool fetch()
     {
-        size_t size = std::fread(buffer, sizeof *buffer, sizeof buffer, inputFile);
+        size_t size =
+            std::fread(buffer, sizeof *buffer, sizeof buffer, inputFile);
         if (size == 0) {
             return false;
         }
         it = buffer;
         end = it + size;
 
-        constexpr int flags = _SIDD_UBYTE_OPS | _SIDD_CMP_RANGES | _SIDD_MASKED_POSITIVE_POLARITY | _SIDD_UNIT_MASK;
+        constexpr int flags = _SIDD_UBYTE_OPS | _SIDD_CMP_RANGES |
+                              _SIDD_MASKED_POSITIVE_POLARITY | _SIDD_UNIT_MASK;
 
         alignas(__m128i) uchar d[sizeof(__m128i)];
         static_assert('A' < 'a', "!");
         std::fill(std::begin(d), std::end(d), 'a' - 'A');
-        const __m128i delta = _mm_load_si128(reinterpret_cast<const __m128i *>(d));
+        const __m128i delta =
+            _mm_load_si128(reinterpret_cast<const __m128i *>(d));
 
         alignas(__m128i) uchar u[sizeof(__m128i)] = "AZ";
-        const __m128i uppercase = _mm_load_si128(reinterpret_cast<const __m128i *>(u));
+        const __m128i uppercase =
+            _mm_load_si128(reinterpret_cast<const __m128i *>(u));
 
         alignas(__m128i) uchar l[sizeof(__m128i)] = "az";
-        const __m128i lowercase = _mm_load_si128(reinterpret_cast<const __m128i *>(l));
+        const __m128i lowercase =
+            _mm_load_si128(reinterpret_cast<const __m128i *>(l));
 
         auto data = reinterpret_cast<__m128i *>(buffer);
         const auto dataEnd = data + (size + sizeof *data - 1) / sizeof *data;
@@ -100,7 +105,7 @@ public :
         return *it++;
     }
 
-private :
+private:
     std::FILE * inputFile;
 
     alignas(__m128i) uchar buffer[bufferSize];
@@ -111,7 +116,7 @@ private :
 template<size_t bufferSize = 131072>
 class OutputStream
 {
-public :
+public:
     OutputStream(std::FILE * outputFile)
         : outputFile{outputFile}
     {
@@ -121,7 +126,7 @@ public :
 
     // non-moveable/non-copyable due to `it` and `end` points to member's data
     OutputStream(const OutputStream &) = delete;
-    OutputStream & operator = (const OutputStream &) = delete;
+    OutputStream & operator=(const OutputStream &) = delete;
 
     ~OutputStream()
     {
@@ -194,7 +199,7 @@ public :
         return true;
     }
 
-private :
+private:
     std::FILE * outputFile;
 
     uchar buffer[bufferSize];
