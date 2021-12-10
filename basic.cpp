@@ -8,20 +8,13 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
-
-#include <ext/pb_ds/assoc_container.hpp>
-#include <ext/pb_ds/tag_and_trait.hpp>
-#include <ext/pb_ds/trie_policy.hpp>
 
 #include <cctype>
 #include <cstdlib>
-
-using Trie = __gnu_pbds::trie<
-    std::string_view, std::size_t,
-    __gnu_pbds::trie_string_access_traits<std::string_view, 'a', 'z'>,
-    __gnu_pbds::pat_trie_tag, __gnu_pbds::null_node_update>;
 
 int main(int argc, char * argv[])
 {
@@ -54,7 +47,7 @@ int main(int argc, char * argv[])
 
     timer.report("make input lowercase");
 
-    Trie trie;
+    std::unordered_map<std::string_view, std::size_t> wordCounts;
 
     auto isAlpha = [](char c) {
         return std::isalpha(std::make_unsigned_t<char>(c));
@@ -63,22 +56,23 @@ int main(int argc, char * argv[])
     auto beg = std::find_if(std::begin(input), end, isAlpha);
     while (beg != end) {
         auto it = std::find_if(beg, end, std::not_fn(isAlpha));
-        ++trie[{beg, it}];
+        ++wordCounts[std::string_view(&*beg, std::distance(beg, it))];
         beg = std::find_if(it, end, isAlpha);
     }
 
     timer.report(BLUE("count words"));
 
-    std::vector<const Trie::value_type *> output;
-    output.reserve(trie.size());
-    for (const auto & wordCount : trie) {
+    std::vector<const decltype(wordCounts)::value_type *> output;
+    output.reserve(wordCounts.size());
+    for (const auto & wordCount : wordCounts) {
         output.push_back(&wordCount);
     }
 
     auto isLess = [](auto lhs, auto rhs) -> bool {
-        return rhs->second < lhs->second;
+        return std::tie(rhs->second, lhs->first) <
+               std::tie(lhs->second, rhs->first);
     };
-    std::stable_sort(std::begin(output), std::end(output), isLess);
+    std::sort(std::begin(output), std::end(output), isLess);
 
     timer.report(YELLOW("sort words"));
 

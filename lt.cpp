@@ -1,0 +1,158 @@
+#include "helpers.hpp"
+#include "io.hpp"
+#include "timer.hpp"
+
+#include <algorithm>
+#include <chrono>
+#include <iterator>
+#include <memory>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+
+namespace
+{
+
+alignas(__m128i) char input[1 << 29];
+auto inputEnd = input;
+
+struct alignas(kHardwareDestructiveInterferenceSize) TrieNode
+{
+    uint32_t count = 0;
+    uint32_t children['z' - 'a' + 1] = {};
+};
+
+}  // namespace
+
+int main(int argc, char * argv[])
+{
+    Timer timer{GREEN("total")};
+
+    if (argc != 3) {
+        std::fprintf(stderr, "usage: %s in.txt out.txt\n", argv[0]);
+        return EXIT_FAILURE;
+    }
+
+    using namespace std::string_view_literals;
+
+    std::unique_ptr<std::FILE, decltype((std::fclose))> inputFile{
+        (argv[1] == "-"sv) ? stdin : std::fopen(argv[1], "rb"), std::fclose};
+    if (!inputFile) {
+        std::fprintf(stderr, "failed to open \"%s\" file to read\n", argv[1]);
+        return EXIT_FAILURE;
+    }
+
+    std::unique_ptr<std::FILE, decltype((std::fclose))> outputFile{
+        (argv[2] == "-"sv) ? stdout : std::fopen(argv[2], "wb"), std::fclose};
+    if (!outputFile) {
+        std::fprintf(stderr, "failed to open \"%s\" file to write\n", argv[2]);
+        return EXIT_FAILURE;
+    }
+
+    timer.report("open files");
+
+    {
+        std::size_t size =
+            std::fread(input, sizeof *input, std::extent_v<decltype(input)>,
+                       inputFile.get());
+        if (!(size < std::extent_v<decltype(input)>)) {
+            std::fprintf(stderr, "input is too large\n");
+            return EXIT_FAILURE;
+        }
+        std::fprintf(stderr, "input size = %zu bytes\n", size);
+
+        inputEnd +=
+            ((size + sizeof(__m128i) - 1) / sizeof(__m128i)) * sizeof(__m128i);
+        std::fill(input + size, inputEnd, '\0');
+    }
+    timer.report("read input");
+
+    toLower(input, inputEnd);
+    timer.report("make input lowercase");
+
+    std::vector<TrieNode> trie(1);
+    uint32_t index = 0;
+    for (auto i = input; i != inputEnd; ++i) {
+        if (*i != '\0') {
+            uint32_t & child = trie[index].children[*i - 'a'];
+            if (child == 0) {
+                child = uint32_t(trie.size());
+                index = child;
+                trie.emplace_back();
+            } else {
+                index = child;
+            }
+        } else if (index != 0) {
+            ++trie[index].count;
+            index = 0;
+        }
+    }
+    std::fprintf(stderr, "trie size = %zu\n", trie.size());
+
+    timer.report(BLUE("count words"));
+
+    std::vector<std::pair<uint32_t, uint32_t>> rank;
+    std::vector<char> words;
+
+    std::vector<char> word;
+    auto traverseTrie = [&](const auto & traverseTrie,
+                            const auto & children) -> void {
+        int c = 0;
+        for (uint32_t index : children) {
+            if (index != 0) {
+                const TrieNode & node = trie[index];
+                word.push_back('a' + c);
+                if (node.count != 0) {
+                    rank.emplace_back(node.count, uint32_t(words.size()));
+                    words.insert(words.cend(), std::cbegin(word),
+                                 std::cend(word));
+                    words.push_back('\0');
+                }
+                traverseTrie(traverseTrie, node.children);
+                word.pop_back();
+            }
+            ++c;
+        }
+    };
+    traverseTrie(traverseTrie, trie.front().children);
+    assert(word.empty());
+    std::fprintf(stderr, "word count = %zu, length = %zu\n", rank.size(),
+                 words.size());
+
+    timer.report("recover words from trie");
+
+    std::stable_sort(std::begin(rank), std::end(rank),
+                     [](auto && l, auto && r) { return r.first < l.first; });
+
+    timer.report(YELLOW("sort words"));
+
+    OutputStream<> outputStream{outputFile.get()};
+
+    for (const auto & [count, word] : rank) {
+        if (!outputStream.print(count)) {
+            std::fprintf(stderr, "output failure");
+            return EXIT_FAILURE;
+        }
+        if (!outputStream.putChar(' ')) {
+            std::fprintf(stderr, "output failure");
+            return EXIT_FAILURE;
+        }
+        if (!outputStream.print(words.data() + word)) {
+            std::fprintf(stderr, "output failure");
+            return EXIT_FAILURE;
+        }
+        if (!outputStream.putChar('\n')) {
+            std::fprintf(stderr, "output failure");
+            return EXIT_FAILURE;
+        }
+    }
+
+    timer.report("output");
+
+    return EXIT_SUCCESS;
+}
