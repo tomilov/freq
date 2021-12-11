@@ -275,17 +275,12 @@ int main(int argc, char * argv[])
         return EXIT_FAILURE;
     }
 
-    {
-        std::size_t size =
-            std::fread(input, sizeof *input, std::extent_v<decltype(input)>,
-                       inputFile.get());
-        assert(size < std::extent_v<decltype(input)>);
-        std::fprintf(stderr, "input size = %zu bytes\n", size);
-
-        inputEnd +=
-            ((size + sizeof(__m128i) - 1) / sizeof(__m128i)) * sizeof(__m128i);
-        std::fill(input + size, inputEnd, '\0');
+    std::size_t readSize =
+        readInput(std::begin(input), std::size(input), inputFile.get());
+    if (readSize == 0) {
+        return EXIT_FAILURE;
     }
+    inputEnd += readSize;
     timer.report("read input");
 
     for (Chunk & chunk : hashTable) {
@@ -358,7 +353,7 @@ int main(int argc, char * argv[])
             return EXIT_FAILURE;
         }
     }
-    timer.report("output");
+    timer.report("write output");
 
     return EXIT_SUCCESS;
 }

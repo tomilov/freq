@@ -21,7 +21,7 @@ namespace
 alignas(__m128i) char input[1 << 29];
 auto inputEnd = input;
 
-struct alignas(kHardwareDestructiveInterferenceSize) TrieNode
+struct TrieNode
 {
     uint32_t count = 0;
     uint32_t children['z' - 'a' + 1] = {};
@@ -56,20 +56,12 @@ int main(int argc, char * argv[])
 
     timer.report("open files");
 
-    {
-        std::size_t size =
-            std::fread(input, sizeof *input, std::extent_v<decltype(input)>,
-                       inputFile.get());
-        if (!(size < std::extent_v<decltype(input)>)) {
-            std::fprintf(stderr, "input is too large\n");
-            return EXIT_FAILURE;
-        }
-        std::fprintf(stderr, "input size = %zu bytes\n", size);
-
-        inputEnd +=
-            ((size + sizeof(__m128i) - 1) / sizeof(__m128i)) * sizeof(__m128i);
-        std::fill(input + size, inputEnd, '\0');
+    std::size_t readSize =
+        readInput(std::begin(input), std::size(input), inputFile.get());
+    if (readSize == 0) {
+        return EXIT_FAILURE;
     }
+    inputEnd += readSize;
     timer.report("read input");
 
     toLower(input, inputEnd);
@@ -132,7 +124,6 @@ int main(int argc, char * argv[])
     timer.report(YELLOW("sort words"));
 
     OutputStream<> outputStream{outputFile.get()};
-
     for (const auto & [count, word] : rank) {
         if (!outputStream.print(count)) {
             std::fprintf(stderr, "output failure");
@@ -151,8 +142,7 @@ int main(int argc, char * argv[])
             return EXIT_FAILURE;
         }
     }
-
-    timer.report("output");
+    timer.report("write output");
 
     return EXIT_SUCCESS;
 }

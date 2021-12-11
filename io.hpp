@@ -8,17 +8,26 @@
 #include <cstdio>
 #include <cstdlib>
 
-#if defined(__linux__) || defined(__APPLE__)
-#define RED(s) "\e[3;31m" s "\e[0m"
-#define GREEN(s) "\e[3;32m" s "\e[0m"
-#define YELLOW(s) "\e[3;33m" s "\e[0m"
-#define BLUE(s) "\e[3;34m" s "\e[0m"
-#else
-#define RED(s) s
-#define GREEN(s) s
-#define YELLOW(s) s
-#define BLUE(s) s
-#endif
+inline std::size_t readInput(char * inputBegin, std::size_t inputSize,
+                             std::FILE * inputFile)
+{
+    std::size_t readSize = std::fread(inputBegin, 1, inputSize, inputFile);
+    std::fprintf(stderr, "input size = %zu bytes\n", readSize);
+    if (!(readSize < inputSize)) {
+        std::fprintf(stderr, "input is too large\n");
+        return 0;
+    }
+
+    inputBegin += readSize;
+    while ((readSize % sizeof(__m128i)) != 0) {
+        *inputBegin++ = '\0';
+        if (++readSize > inputSize) {
+            std::fprintf(stderr, "input is too large\n");
+            return 0;
+        }
+    }
+    return readSize;
+}
 
 template<std::size_t bufferSize = 131072>
 class OutputStream

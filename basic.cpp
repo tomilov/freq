@@ -1,5 +1,4 @@
 #include "helpers.hpp"
-#include "io.hpp"
 #include "timer.hpp"
 
 #include <algorithm>
@@ -50,13 +49,13 @@ int main(int argc, char * argv[])
     std::unordered_map<std::string_view, std::size_t> wordCounts;
 
     auto isAlpha = [](char c) {
-        return std::isalpha(std::make_unsigned_t<char>(c));
+        return bool(std::isalpha(std::make_unsigned_t<char>(c)));
     };
-    auto end = std::end(input);
-    auto beg = std::find_if(std::begin(input), end, isAlpha);
+    auto end = input.data() + input.size();
+    auto beg = std::find_if(input.data(), end, isAlpha);
     while (beg != end) {
         auto it = std::find_if(beg, end, std::not_fn(isAlpha));
-        ++wordCounts[std::string_view(&*beg, std::distance(beg, it))];
+        ++wordCounts[{beg, std::size_t(std::distance(beg, it))}];
         beg = std::find_if(it, end, isAlpha);
     }
 
@@ -83,7 +82,6 @@ int main(int argc, char * argv[])
     for (auto wordCount : output) {
         o << wordCount->second << ' ' << wordCount->first << '\n';
     }
-
     timer.report("write output");
 
     return EXIT_SUCCESS;

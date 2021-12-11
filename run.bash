@@ -1,34 +1,80 @@
+#! /usr/bin/bash
+
 set -e
-if ! [[ -x $1 ]]
+
+if [[ ! -f pg.txt ]]
 then
-    >&2 echo "Usage: bash run.bash <executable> <N>"
-    exit 1
+    >&2 echo "No pg.txt in current directory"
+    exit 2
 fi
 
-if [[ $2 =~ [[:digit:]]+ ]]
+if [[ ! -x $1 ]]
 then
-    N="$2"
+    >&2 echo "Usage: bash run.bash ABSOLUTE_PATH_TO_EXECUTABLE [N]"
+    exit 3
+fi
+
+if [[ ! $1 = /* ]]
+then
+    >&2 echo "Value '$1' of the first parameter is not an absolute path"
+    exit 4
+fi
+
+if [[ $2 ]]
+then
+    if [[ ! $2 =~ ^[[:digit:]]+$ ]]
+    then
+        >&2 echo "Value '$2' of the second parameter is not a number"
+        exit 5
+    fi
+    N=$2
 else
     N=1
 fi
 
-rsync pg.txt /tmp/
-rsync ref.txt /tmp/out.txt
-md5sum /tmp/out.txt >/tmp/out.txt.md5
+if [[ ! -f pg.txt ]]
+then
+    >&2 echo "File pg.txt is not found in current directory"
+fi
 
-sudo find /sys/devices/system/cpu -name scaling_governor -exec sh -c 'echo performance >{}' ';'
-sudo sh -c 'echo off >/sys/devices/system/cpu/smt/control ; tuna --cpus=1-7 --isolate'
+if ! WORKSPACE="$( mktemp -d --tmpdir 'freq.XXXXXX' )"
+then
+    >&2 echo "Unable to create temporary directory"
+    exit 7
+fi
+
+NPROC="$( nproc )"
 
 function on_exit {
-    sudo sh -c 'echo on >/sys/devices/system/cpu/smt/control ; tuna --cpus=0-15 --include'
-    sudo find /sys/devices/system/cpu -name scaling_governor -exec sh -c 'echo powersave >{}' ';'
+    set +e
+    if [[ $( cat /sys/devices/system/cpu/smt/control ) == "off" ]]
+    then
+        sudo sh -c 'echo on >/sys/devices/system/cpu/smt/control'
+    fi
+    sudo sh -c "tuna --cpus=0-$NPROC --include"
+    echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+    rm -r "$WORKSPACE"
 }
 trap on_exit EXIT
 
-for (( i = 0 ; i < N; ++i ))
-do
-    rm /tmp/out.txt
-    time LC_ALL="C" taskset --cpu-list 1-7 "$1" /tmp/pg.txt /tmp/out.txt
-    md5sum -c /tmp/out.txt.md5
-done
+cp -a pg.txt "$WORKSPACE"
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+if [[ NPROC > 1 ]]
+then
+    if [[ $( cat /sys/devices/system/cpu/smt/control ) == "on" ]]
+    then
+        sudo sh -c 'echo off >/sys/devices/system/cpu/smt/control'
+    fi
+    sudo sh -c "tuna --cpus=1-$NPROC --isolate"
+fi
 
+pushd "$WORKSPACE"
+echo '850944413ba9fd1dbf2b9694abaa930d  -' >out.txt.md5sum
+for (( i = 0 ; i < N ; ++i ))
+do
+    time LC_ALL=C taskset --cpu-list 1-$NPROC "$1" pg.txt out.txt
+    >&2 echo -n
+    cat out.txt | md5sum --check out.txt.md5sum
+    rm out.txt
+done
+popd
