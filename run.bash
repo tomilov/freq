@@ -47,17 +47,23 @@ NPROC="$( nproc )"
 
 function on_exit {
     set +e
+    set -v
+    popd
+
     if [[ $( cat /sys/devices/system/cpu/smt/control ) == "off" ]]
     then
         sudo sh -c 'echo on >/sys/devices/system/cpu/smt/control'
     fi
     sudo sh -c "tuna --cpus=0-$NPROC --include"
     echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+
     rm -r "$WORKSPACE"
 }
 trap on_exit EXIT
 
 cp -a pg.txt "$WORKSPACE"
+pushd "$WORKSPACE"
+
 echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 if [[ NPROC > 1 ]]
 then
@@ -68,7 +74,6 @@ then
     sudo sh -c "tuna --cpus=1-$NPROC --isolate"
 fi
 
-pushd "$WORKSPACE"
 echo '850944413ba9fd1dbf2b9694abaa930d  -' >out.txt.md5sum
 for (( i = 0 ; i < N ; ++i ))
 do
@@ -77,4 +82,3 @@ do
     cat out.txt | md5sum --check out.txt.md5sum
     rm out.txt
 done
-popd

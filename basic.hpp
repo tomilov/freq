@@ -1,3 +1,5 @@
+#pragma once
+
 #include "helpers.hpp"
 #include "timer.hpp"
 
@@ -9,13 +11,15 @@
 #include <string_view>
 #include <tuple>
 #include <type_traits>
-#include <unordered_map>
 #include <vector>
 
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 
-int main(int argc, char * argv[])
+template<template<typename...> class Map, bool kIsOrdered = false,
+         bool kSetEmptyKey = false>
+int basic(int argc, char * argv[])
 {
     Timer timer{GREEN("total")};
 
@@ -46,7 +50,11 @@ int main(int argc, char * argv[])
 
     timer.report("make input lowercase");
 
-    std::unordered_map<std::string_view, std::size_t> wordCounts;
+    Map<std::string_view, uint32_t> wordCounts;
+    if constexpr (kSetEmptyKey) {
+        using namespace std::string_view_literals;
+        wordCounts.set_empty_key(""sv);
+    }
 
     auto isAlpha = [](char c) {
         return bool(std::isalpha(std::make_unsigned_t<char>(c)));
@@ -61,18 +69,24 @@ int main(int argc, char * argv[])
 
     timer.report(BLUE("count words"));
 
-    std::vector<const decltype(wordCounts)::value_type *> output;
+    std::vector<const typename decltype(wordCounts)::value_type *> output;
     output.reserve(wordCounts.size());
     for (const auto & wordCount : wordCounts) {
         output.push_back(&wordCount);
     }
 
-    auto isLess = [](auto lhs, auto rhs) -> bool {
-        return std::tie(rhs->second, lhs->first) <
-               std::tie(lhs->second, rhs->first);
-    };
-    std::sort(std::begin(output), std::end(output), isLess);
-
+    if (kIsOrdered) {
+        auto isLess = [](auto lhs, auto rhs) -> bool {
+            return rhs->second < lhs->second;
+        };
+        std::stable_sort(std::begin(output), std::end(output), isLess);
+    } else {
+        auto isLess = [](auto lhs, auto rhs) -> bool {
+            return std::tie(rhs->second, lhs->first) <
+                   std::tie(lhs->second, rhs->first);
+        };
+        std::sort(std::begin(output), std::end(output), isLess);
+    }
     timer.report(YELLOW("sort words"));
 
     std::ofstream o(argv[2]);
