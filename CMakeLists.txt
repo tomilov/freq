@@ -72,7 +72,7 @@ else()
     message(STATUS "Target sparse_hash_map disabled")
 endif()
 
-if(TARGET Folly::folly)
+if(TARGET Folly::folly AND TARGET gflags)
     add_executable("folly")
     target_sources(
         "folly"

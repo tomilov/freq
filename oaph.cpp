@@ -3,6 +3,7 @@
 #include "timer.hpp"
 
 #include <algorithm>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -175,8 +176,8 @@ static void findPerfectHash()
     timer.report("collect words");
 
     std::sort(std::begin(words), std::end(words), [](auto && lhs, auto && rhs) {
-        return std::forward_as_tuple(lhs.size(), lhs) <
-               std::forward_as_tuple(rhs.size(), rhs);
+        return std::make_tuple(lhs.size(), std::cref(lhs)) <
+               std::make_tuple(rhs.size(), std::cref(rhs));
     });
     timer.report(YELLOW("sort words"));
 

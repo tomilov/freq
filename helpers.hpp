@@ -47,7 +47,7 @@ inline constexpr std::size_t kHardwareDestructiveInterferenceSize = 64;
 
 inline void toLower(char * beg, char * const end)
 {
-    assert(s <= end);
+    assert(beg <= end);
     assert((reinterpret_cast<std::uintptr_t>(beg) % sizeof(__m128i)) == 0);
     assert((reinterpret_cast<std::uintptr_t>(end) % sizeof(__m128i)) == 0);
     for (; beg < end; beg += sizeof(__m128i)) {

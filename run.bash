@@ -4,7 +4,7 @@ set -e
 
 if [[ ! -f pg.txt ]]
 then
-    >&2 echo "No pg.txt in current directory"
+    >&2 echo "File pg.txt is not found in current directory"
     exit 2
 fi
 
@@ -32,18 +32,13 @@ else
     N=1
 fi
 
-if [[ ! -f pg.txt ]]
-then
-    >&2 echo "File pg.txt is not found in current directory"
-fi
+NPROC="$( nproc )"
 
 if ! WORKSPACE="$( mktemp -d --tmpdir 'freq.XXXXXX' )"
 then
     >&2 echo "Unable to create temporary directory"
     exit 7
 fi
-
-NPROC="$( nproc )"
 
 function on_exit {
     set +e
