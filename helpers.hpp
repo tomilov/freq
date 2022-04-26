@@ -4,6 +4,7 @@
 #include <new>
 
 #include <cassert>
+#include <cstdint>
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 #define FORCEINLINE __forceinline
@@ -23,19 +24,7 @@
 #error "!"
 #endif
 
-#if defined(__linux__) || defined(__APPLE__)
-#define RED(s) "\e[3;31m" s "\e[0m"
-#define GREEN(s) "\e[3;32m" s "\e[0m"
-#define YELLOW(s) "\e[3;33m" s "\e[0m"
-#define BLUE(s) "\e[3;34m" s "\e[0m"
-#else
-#define RED(s) s
-#define GREEN(s) s
-#define YELLOW(s) s
-#define BLUE(s) s
-#endif
-
-#ifdef __cpp_lib_hardware_interference_size
+#if defined(__GLIBCXX__) && __cpp_lib_hardware_interference_size >= 201603
 inline constexpr std::size_t kHardwareConstructiveInterferenceSize =
     std::hardware_constructive_interference_size;
 inline constexpr std::size_t kHardwareDestructiveInterferenceSize =

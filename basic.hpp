@@ -3,6 +3,9 @@
 #include "helpers.hpp"
 #include "timer.hpp"
 
+#include <fmt/color.h>
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <fstream>
 #include <functional>
@@ -21,7 +24,7 @@ template<template<typename...> class Map, bool kIsOrdered = false,
          bool kSetEmptyKey = false>
 int basic(int argc, char * argv[])
 {
-    Timer timer{GREEN("total")};
+    Timer timer{fmt::format(fg(fmt::color::dark_green), "total")};
 
     if (argc < 3) {
         return EXIT_FAILURE;
@@ -67,7 +70,7 @@ int basic(int argc, char * argv[])
         beg = std::find_if(it, end, isAlpha);
     }
 
-    timer.report(BLUE("count words"));
+    timer.report(fmt::format(fg(fmt::color::dark_blue), "count words"));
 
     std::vector<const typename decltype(wordCounts)::value_type *> output;
     output.reserve(wordCounts.size());
@@ -87,7 +90,7 @@ int basic(int argc, char * argv[])
         };
         std::sort(std::begin(output), std::end(output), isLess);
     }
-    timer.report(YELLOW("sort words"));
+    timer.report(fmt::format(fg(fmt::color::dark_orange), "sort words"));
 
     std::ofstream o(argv[2]);
     if (!o.is_open()) {

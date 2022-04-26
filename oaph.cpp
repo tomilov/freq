@@ -2,6 +2,9 @@
 #include "io.hpp"
 #include "timer.hpp"
 
+#include <fmt/color.h>
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <functional>
 #include <iterator>
@@ -153,7 +156,7 @@ void countWords()
 
 static void findPerfectHash()
 {
-    Timer timer{GREEN("total")};
+    Timer timer{fmt::format(fg(fmt::color::dark_orange), "total")};
 
     toLower(input, inputEnd);
     timer.report("make input lowercase");
@@ -169,8 +172,8 @@ static void findPerfectHash()
             words.emplace(hi, std::size_t(std::distance(hi, lo)));
             ++wordCount;
         }
-        std::fprintf(stderr, "%zu words read\n", wordCount);
-        std::fprintf(stderr, "%zu unique words read\n", words.size());
+        fmt::print(stderr, "{} words read\n", wordCount);
+        fmt::print(stderr, "{} unique words read\n", words.size());
         return {std::cbegin(words), std::cend(words)};
     }();
     timer.report("collect words");
@@ -179,7 +182,7 @@ static void findPerfectHash()
         return std::make_tuple(lhs.size(), std::cref(lhs)) <
                std::make_tuple(rhs.size(), std::cref(rhs));
     });
-    timer.report(YELLOW("sort words"));
+    timer.report(fmt::format(fg(fmt::color::dark_orange), "sort words"));
 
     constexpr auto hashTableOrder = kHashTableOrder;
     constexpr uint32_t hashTableMask = (uint32_t(1) << hashTableOrder) - 1;
@@ -228,23 +231,22 @@ static void findPerfectHash()
             }
             hashesFull.clear();
             if (!bad) {
-                std::fprintf(
-                    stderr,
-                    YELLOW("FOUND: iterationCount %u ; initialChecksum = "
-                           "%u ; collision = %hhu ; hashTableOrder %u "
-                           "; time %.3lf ; tid %i\n"),
-                    iterationCount, uint32_t(initialChecksum), collision,
-                    hashTableOrder, timer.dt(), omp_get_thread_num());
+                fmt::print(stderr, fg(fmt::color::dark_orange),
+                           "FOUND: iterationCount {} ; initialChecksum = "
+                           "{} ; collision = {} ; hashTableOrder {} "
+                           "; time {:.3} ; tid {}\n",
+                           iterationCount, uint32_t(initialChecksum), collision,
+                           hashTableOrder, timer.dt(), omp_get_thread_num());
             }
             if ((++iterationCount % printStatusPeriod) == 0) {
-                std::fprintf(stderr, "failed at %zu of %zu\n",
-                             std::exchange(maxPrefix, 0), words.size());
-                std::fprintf(stderr,
-                             "status: totalIterationCount ~%u ; tid %i ; "
-                             "initialChecksum %u ; time %.3lf\n",
-                             iterationCount * omp_get_num_threads(),
-                             omp_get_thread_num(), uint32_t(initialChecksum),
-                             timer.dt());
+                fmt::print(stderr, "failed at {} of {}\n",
+                           std::exchange(maxPrefix, 0), words.size());
+                fmt::print(stderr,
+                           "status: totalIterationCount ~{} ; tid {} ; "
+                           "initialChecksum {} ; time {:.3}\n",
+                           iterationCount * omp_get_num_threads(),
+                           omp_get_thread_num(), uint32_t(initialChecksum),
+                           timer.dt());
             }
         }
     }
@@ -253,10 +255,10 @@ static void findPerfectHash()
 
 int main(int argc, char * argv[])
 {
-    Timer timer{GREEN("total")};
+    Timer timer{fmt::format(fg(fmt::color::dark_green), "total")};
 
     if (argc != 3) {
-        std::fprintf(stderr, "usage: %s in.txt out.txt\n", argv[0]);
+        fmt::print(stderr, "usage: {} in.txt out.txt\n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -265,14 +267,14 @@ int main(int argc, char * argv[])
     std::unique_ptr<std::FILE, decltype((std::fclose))> inputFile{
         (argv[1] == "-"sv) ? stdin : std::fopen(argv[1], "rb"), std::fclose};
     if (!inputFile) {
-        std::fprintf(stderr, "failed to open \"%s\" file to read\n", argv[1]);
+        fmt::print(stderr, "failed to open '{}' file to read\n", argv[1]);
         return EXIT_FAILURE;
     }
 
     std::unique_ptr<std::FILE, decltype((std::fclose))> outputFile{
         (argv[2] == "-"sv) ? stdout : std::fopen(argv[2], "wb"), std::fclose};
     if (!outputFile) {
-        std::fprintf(stderr, "failed to open \"%s\" file to write\n", argv[2]);
+        fmt::print(stderr, "failed to open '{}' file to write\n", argv[2]);
         return EXIT_FAILURE;
     }
 
@@ -302,7 +304,7 @@ int main(int argc, char * argv[])
     }
 
     countWords();
-    timer.report(BLUE("count words"));
+    timer.report(fmt::format(fg(fmt::color::dark_blue), "count words"));
 
     toLower(output, o);
     timer.report("make output lowercase");
@@ -324,8 +326,8 @@ int main(int argc, char * argv[])
             ++hashLow;
         }
     }
-    std::fprintf(stderr, "load factor = %.3lf\n",
-                 double(rank.size()) / double(rank.capacity()));
+    fmt::print(stderr, "load factor = {:.3}\n",
+               double(rank.size()) / double(rank.capacity()));
     timer.report("collect word counts");
 
     auto less = [](auto && lhs, auto && rhs) {
@@ -333,24 +335,24 @@ int main(int argc, char * argv[])
                std::tie(lhs.first, rhs.second);
     };
     std::sort(std::begin(rank), std::end(rank), less);
-    timer.report(YELLOW("sort words"));
+    timer.report(fmt::format(fg(fmt::color::dark_orange), "sort words"));
 
     OutputStream<> outputStream{outputFile.get()};
     for (const auto & [count, word] : rank) {
         if (!outputStream.print(count)) {
-            std::fprintf(stderr, "output failure\n");
+            fmt::print(stderr, "output failure\n");
             return EXIT_FAILURE;
         }
         if (!outputStream.putChar(' ')) {
-            fprintf(stderr, "output failure\n");
+            fmt::print(stderr, "output failure\n");
             return EXIT_FAILURE;
         }
         if (!outputStream.print(word.data())) {
-            fprintf(stderr, "output failure\n");
+            fmt::print(stderr, "output failure\n");
             return EXIT_FAILURE;
         }
         if (!outputStream.putChar('\n')) {
-            fprintf(stderr, "output failure\n");
+            fmt::print(stderr, "output failure\n");
             return EXIT_FAILURE;
         }
     }

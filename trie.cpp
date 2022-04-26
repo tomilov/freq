@@ -2,6 +2,9 @@
 #include "io.hpp"
 #include "timer.hpp"
 
+#include <fmt/color.h>
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <chrono>
 #include <iterator>
@@ -31,10 +34,10 @@ struct TrieNode
 
 int main(int argc, char * argv[])
 {
-    Timer timer{GREEN("total")};
+    Timer timer{fmt::format(fg(fmt::color::dark_green), "total")};
 
     if (argc != 3) {
-        std::fprintf(stderr, "usage: %s in.txt out.txt\n", argv[0]);
+        fmt::print(stderr, "usage: {} in.txt out.txt\n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -43,14 +46,14 @@ int main(int argc, char * argv[])
     std::unique_ptr<std::FILE, decltype((std::fclose))> inputFile{
         (argv[1] == "-"sv) ? stdin : std::fopen(argv[1], "rb"), std::fclose};
     if (!inputFile) {
-        std::fprintf(stderr, "failed to open \"%s\" file to read\n", argv[1]);
+        fmt::print(stderr, "failed to open '{}' file to read\n", argv[1]);
         return EXIT_FAILURE;
     }
 
     std::unique_ptr<std::FILE, decltype((std::fclose))> outputFile{
         (argv[2] == "-"sv) ? stdout : std::fopen(argv[2], "wb"), std::fclose};
     if (!outputFile) {
-        std::fprintf(stderr, "failed to open \"%s\" file to write\n", argv[2]);
+        fmt::print(stderr, "failed to open '{}' file to write\n", argv[2]);
         return EXIT_FAILURE;
     }
 
@@ -84,9 +87,9 @@ int main(int argc, char * argv[])
             index = 0;
         }
     }
-    std::fprintf(stderr, "trie size = %zu\n", trie.size());
+    fmt::print(stderr, "trie size = {}\n", trie.size());
 
-    timer.report(BLUE("count words"));
+    timer.report(fmt::format(fg(fmt::color::dark_blue), "count words"));
 
     std::vector<std::pair<uint32_t, uint32_t>> rank;
     std::vector<char> words;
@@ -113,32 +116,32 @@ int main(int argc, char * argv[])
     };
     traverseTrie(traverseTrie, trie.front().children);
     assert(word.empty());
-    std::fprintf(stderr, "word count = %zu, length = %zu\n", rank.size(),
-                 words.size());
+    fmt::print(stderr, "word count = {}, length = {}\n", rank.size(),
+               words.size());
 
     timer.report("recover words from trie");
 
     std::stable_sort(std::begin(rank), std::end(rank),
                      [](auto && l, auto && r) { return r.first < l.first; });
 
-    timer.report(YELLOW("sort words"));
+    timer.report(fmt::format(fg(fmt::color::dark_orange), "sort words"));
 
     OutputStream<> outputStream{outputFile.get()};
     for (const auto & [count, word] : rank) {
         if (!outputStream.print(count)) {
-            std::fprintf(stderr, "output failure");
+            fmt::print(stderr, "output failure");
             return EXIT_FAILURE;
         }
         if (!outputStream.putChar(' ')) {
-            std::fprintf(stderr, "output failure");
+            fmt::print(stderr, "output failure");
             return EXIT_FAILURE;
         }
         if (!outputStream.print(words.data() + word)) {
-            std::fprintf(stderr, "output failure");
+            fmt::print(stderr, "output failure");
             return EXIT_FAILURE;
         }
         if (!outputStream.putChar('\n')) {
-            std::fprintf(stderr, "output failure");
+            fmt::print(stderr, "output failure");
             return EXIT_FAILURE;
         }
     }

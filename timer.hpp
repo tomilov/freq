@@ -1,18 +1,22 @@
 #pragma once
 
+#include <fmt/format.h>
+
 #include <chrono>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include <cstdio>
 
 struct Timer
 {
-    const char * onScopeExit = "total";
+    std::string onScopeExit = "total";
     const std::chrono::high_resolution_clock::time_point start =
         std::chrono::high_resolution_clock::now();
     std::chrono::high_resolution_clock::time_point timePoint = start;
 
-    double dt(bool absolute = false)
+    auto dt(bool absolute = false)
     {
         auto stop = std::chrono::high_resolution_clock::now();
         return std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -21,9 +25,9 @@ struct Timer
                1E-9;
     }
 
-    void report(const char * description, bool absolute = false)
+    void report(std::string_view description, bool absolute = false)
     {
-        std::fprintf(stderr, "time (%s) = %.3lf\n", description, dt(absolute));
+        fmt::print(stderr, "time ({}) = {:.3}\n", description, dt(absolute));
     }
 
     ~Timer()

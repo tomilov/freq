@@ -49,7 +49,10 @@ function on_exit {
     then
         sudo sh -c 'echo on >/sys/devices/system/cpu/smt/control'
     fi
-    sudo sh -c "tuna --cpus=0-$NPROC --include"
+    if command -v tuna
+    then
+        sudo sh -c "tuna --cpus=0-$NPROC --include"
+    fi
     echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 
     rm -r "$WORKSPACE"
@@ -66,7 +69,10 @@ then
     then
         sudo sh -c 'echo off >/sys/devices/system/cpu/smt/control'
     fi
-    sudo sh -c "tuna --cpus=1-$NPROC --isolate"
+    if command -v tuna
+    then
+        sudo sh -c "tuna --cpus=1-$NPROC --isolate"
+    fi
 fi
 
 echo '850944413ba9fd1dbf2b9694abaa930d  -' >out.txt.md5sum

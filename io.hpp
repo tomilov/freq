@@ -2,6 +2,8 @@
 
 #include "helpers.hpp"
 
+#include <fmt/format.h>
+
 #include <iterator>
 
 #include <cassert>
@@ -12,9 +14,9 @@ inline std::size_t readInput(char * inputBegin, std::size_t inputSize,
                              std::FILE * inputFile)
 {
     std::size_t readSize = std::fread(inputBegin, 1, inputSize, inputFile);
-    std::fprintf(stderr, "input size = %zu bytes\n", readSize);
+    fmt::print(stderr, "input size = {} bytes\n", readSize);
     if (!(readSize < inputSize)) {
-        std::fprintf(stderr, "input is too large\n");
+        fmt::print(stderr, "input is too large\n");
         return 0;
     }
 
@@ -22,7 +24,7 @@ inline std::size_t readInput(char * inputBegin, std::size_t inputSize,
     while ((readSize % sizeof(__m128i)) != 0) {
         *inputBegin++ = '\0';
         if (++readSize > inputSize) {
-            std::fprintf(stderr, "input is too large\n");
+            fmt::print(stderr, "input is too large\n");
             return 0;
         }
     }
