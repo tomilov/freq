@@ -36,12 +36,12 @@ int basic(int argc, char * argv[])
     }
 
     i.seekg(0, std::ios::end);
-    auto size = std::size_t(i.tellg());
+    auto size = i.tellg();
     i.seekg(0, std::ios::beg);
 
     std::string input;
-    input.resize(size);
-    i.read(input.data(), size);
+    input.resize(std::size_t(size));
+    i.read(input.data(), std::streamsize(size));
 
     timer.report("read input");
 
@@ -62,7 +62,7 @@ int basic(int argc, char * argv[])
     auto isAlpha = [](char c) {
         return bool(std::isalpha(std::make_unsigned_t<char>(c)));
     };
-    auto end = input.data() + input.size();
+    auto end = std::next(input.data(), input.size());
     auto beg = std::find_if(input.data(), end, isAlpha);
     while (beg != end) {
         auto it = std::find_if(beg, end, std::not_fn(isAlpha));

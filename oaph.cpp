@@ -75,8 +75,9 @@ void incCounter(uint32_t hash, const char * __restrict wordEnd, uint32_t len)
             BSF(index, m);
             index /= 2;
             if (kEnableOpenAddressing &&
-                UNLIKELY(!std::equal(wordEnd - len, wordEnd + 1,
-                                     output + words[hashLow][index])))
+                UNLIKELY(!std::equal(std::prev(wordEnd, len),
+                                     std::next(wordEnd),
+                                     std::next(output, words[hashLow][index]))))
             {
                 hashLow = (hashLow + 1) & kHashTableMask;  // linear probing
                 continue;
@@ -121,7 +122,7 @@ void countWords()
         ++len;                                                             \
         hash = _mm_crc32_u8(hash, uint8_t(_mm_extract_epi8(str, offset))); \
     } else if UNPREDICTABLE (len != 0) {                                   \
-        incCounter(hash, i + offset, len);                                 \
+        incCounter(hash, std::next(i, offset), len);                       \
         len = 0;                                                           \
         hash = kInitialChecksum;                                           \
     }
@@ -319,7 +320,8 @@ int main(int argc, char * argv[])
             uint32_t index = 0;
             for (uint32_t word : w) {
                 if (word != 0) {
-                    rank.emplace_back(chunk.count[index], output + word);
+                    rank.emplace_back(chunk.count[index],
+                                      std::next(output, word));
                 }
                 ++index;
             }

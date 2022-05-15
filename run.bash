@@ -75,11 +75,10 @@ then
     fi
 fi
 
-echo '850944413ba9fd1dbf2b9694abaa930d  -' >out.txt.md5sum
 for (( i = 0 ; i < N ; ++i ))
 do
     time LC_ALL=C taskset --cpu-list 1-$NPROC "$1" pg.txt out.txt
     >&2 echo -n
-    cat out.txt | md5sum --check out.txt.md5sum
+    md5sum --check <( echo '850944413ba9fd1dbf2b9694abaa930d  -' ) <out.txt
     rm out.txt
 done

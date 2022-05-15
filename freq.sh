@@ -8,5 +8,5 @@ END {
     for(i in w)
         print w[i], i
 }
-' "$1" | sort -k1gr,2 >"$2"
+' | sort -k1gr,2
 

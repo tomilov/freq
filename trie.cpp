@@ -62,7 +62,7 @@ int main(int argc, char * argv[])
     std::size_t readSize =
         readInput(std::begin(input), std::size(input), inputFile.get());
     if (readSize == 0) {
-        return EXIT_FAILURE;
+        return EXIT_SUCCESS;
     }
     inputEnd += readSize;
     timer.report("read input");
@@ -94,12 +94,15 @@ int main(int argc, char * argv[])
     std::vector<std::pair<uint32_t, uint32_t>> rank;
     std::vector<char> words;
 
+    size_t leafs = 0;
     std::vector<char> word;
     auto traverseTrie = [&](const auto & traverseTrie,
                             const auto & children) -> void {
         int c = 0;
         for (uint32_t index : children) {
+            bool is_leaf = true;
             if (index != 0) {
+                is_leaf = false;
                 const TrieNode & node = trie[index];
                 word.push_back('a' + c);
                 if (node.count != 0) {
@@ -111,6 +114,9 @@ int main(int argc, char * argv[])
                 traverseTrie(traverseTrie, node.children);
                 word.pop_back();
             }
+            if (is_leaf) {
+                ++leafs;
+            }
             ++c;
         }
     };
@@ -118,6 +124,7 @@ int main(int argc, char * argv[])
     assert(word.empty());
     fmt::print(stderr, "word count = {}, length = {}\n", rank.size(),
                words.size());
+    fmt::print(stderr, "LEAFS {}\n", leafs);
 
     timer.report("recover words from trie");
 
@@ -136,7 +143,7 @@ int main(int argc, char * argv[])
             fmt::print(stderr, "output failure");
             return EXIT_FAILURE;
         }
-        if (!outputStream.print(words.data() + word)) {
+        if (!outputStream.print(std::next(words.data(), word))) {
             fmt::print(stderr, "output failure");
             return EXIT_FAILURE;
         }

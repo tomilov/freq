@@ -21,6 +21,8 @@ add_library("libstdc++" INTERFACE)
 target_compile_options("libstdc++" INTERFACE $<$<CXX_COMPILER_ID:Clang>:-stdlib=libstdc++>)
 target_link_options("libstdc++" INTERFACE $<$<CXX_COMPILER_ID:Clang>:-stdlib=libstdc++>)
 
+link_libraries(fmt::fmt)
+
 add_executable("unordered_map")
 target_sources(
     "unordered_map"
@@ -30,12 +32,7 @@ target_sources(
         "timer.hpp"
         "helpers.hpp"
 )
-target_link_libraries(
-    "unordered_map"
-    PRIVATE
-        "libc++"
-        fmt::fmt
-)
+target_link_libraries("unordered_map" PRIVATE "libc++")
 
 add_executable("unordered_map_libstdc++")
 target_sources(
@@ -46,12 +43,7 @@ target_sources(
         "timer.hpp"
         "helpers.hpp"
 )
-target_link_libraries(
-    "unordered_map_libstdc++"
-    PRIVATE
-        "libstdc++"
-        fmt::fmt
-)
+target_link_libraries("unordered_map_libstdc++" PRIVATE "libstdc++")
 
 CHECK_INCLUDE_FILE_CXX("google/dense_hash_map" google_dense_hash_map_FOUND)
 CHECK_INCLUDE_FILE_CXX("sparse_hash_map/dense_hash_map" sparse_hash_map_dense_hash_map_FOUND)
@@ -65,12 +57,7 @@ if(google_dense_hash_map_FOUND OR sparse_hash_map_dense_hash_map_FOUND)
             "timer.hpp"
             "helpers.hpp"
     )
-    target_link_libraries(
-        "dense_hash_map"
-        PRIVATE
-            "libc++"
-            fmt::fmt
-    )
+    target_link_libraries("dense_hash_map" PRIVATE "libc++")
 else()
     message(STATUS "Target dense_hash_map disabled")
 endif()
@@ -87,12 +74,7 @@ if(google_sparse_hash_map_FOUND OR sparse_hash_map_sparse_hash_map_FOUND)
             "timer.hpp"
             "helpers.hpp"
     )
-    target_link_libraries(
-        "sparse_hash_map"
-        PRIVATE
-            "libc++"
-            fmt::fmt
-    )
+    target_link_libraries("sparse_hash_map" PRIVATE "libc++")
 else()
     message(STATUS "Target sparse_hash_map disabled")
 endif()
@@ -113,7 +95,6 @@ if(TARGET Folly::folly AND TARGET gflags)
             "libstdc++"
             Folly::folly
             gflags
-            fmt::fmt
     )
 else()
     message(STATUS "Target folly disabled")
@@ -134,7 +115,6 @@ if(TARGET absl::flat_hash_map)
         PRIVATE
             "libc++"
             absl::flat_hash_map
-            fmt::fmt
     )
 else()
     message(STATUS "Target absl disabled")
@@ -149,12 +129,7 @@ target_sources(
         "timer.hpp"
         "helpers.hpp"
 )
-target_link_libraries(
-    "pb_ds"
-    PRIVATE
-        "libstdc++"
-        fmt::fmt
-)
+target_link_libraries("pb_ds" PRIVATE "libstdc++")
 
 add_executable("trie")
 target_sources(
@@ -165,12 +140,7 @@ target_sources(
         "timer.hpp"
         "helpers.hpp"
 )
-target_link_libraries(
-    "trie"
-    PRIVATE
-        "libc++"
-        fmt::fmt
-)
+target_link_libraries("trie" PRIVATE "libc++")
 
 add_executable("oaph")
 target_sources(
@@ -186,6 +156,5 @@ target_link_libraries(
     PRIVATE
         "libc++"
         $<$<BOOL:OpenMP_CXX_FOUND>:OpenMP::OpenMP_CXX>
-        fmt::fmt
 )
 
