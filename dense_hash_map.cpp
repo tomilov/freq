@@ -1,4 +1,4 @@
-#include "basic.hpp"
+#include "common.hpp"
 
 #if __has_include(<sparsehash/dense_hash_map>)
 #include <sparsehash/dense_hash_map>
@@ -10,6 +10,6 @@
 
 int main(int argc, char * argv[])
 {
-    return basic<google::dense_hash_map, /* kIsOrdered */ false,
-                 /* kSetEmptyKey */ true>(argc, argv);
+    return count_words<google::dense_hash_map, /* kIsOrdered */ false,
+                       /* kSetEmptyKey */ true>(argc, argv);
 }

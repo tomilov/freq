@@ -28,7 +28,7 @@ target_sources(
     "unordered_map"
     PRIVATE
         "unordered_map.cpp"
-        "basic.hpp"
+        "common.hpp"
         "timer.hpp"
         "helpers.hpp"
 )
@@ -39,7 +39,7 @@ target_sources(
     "unordered_map_libstdc++"
     PRIVATE
         "unordered_map.cpp"
-        "basic.hpp"
+        "common.hpp"
         "timer.hpp"
         "helpers.hpp"
 )
@@ -53,7 +53,7 @@ if(google_dense_hash_map_FOUND OR sparse_hash_map_dense_hash_map_FOUND)
         "dense_hash_map"
         PRIVATE
             "dense_hash_map.cpp"
-            "basic.hpp"
+            "common.hpp"
             "timer.hpp"
             "helpers.hpp"
     )
@@ -70,7 +70,7 @@ if(google_sparse_hash_map_FOUND OR sparse_hash_map_sparse_hash_map_FOUND)
         "sparse_hash_map"
         PRIVATE
             "sparse_hash_map.cpp"
-            "basic.hpp"
+            "common.hpp"
             "timer.hpp"
             "helpers.hpp"
     )
@@ -85,7 +85,7 @@ if(TARGET Folly::folly AND TARGET gflags)
         "folly"
         PRIVATE
             "folly.cpp"
-            "basic.hpp"
+            "common.hpp"
             "timer.hpp"
             "helpers.hpp"
     )
@@ -106,7 +106,7 @@ if(TARGET absl::flat_hash_map)
         "absl"
         PRIVATE
             "absl.cpp"
-            "basic.hpp"
+            "common.hpp"
             "timer.hpp"
             "helpers.hpp"
     )
@@ -125,7 +125,7 @@ target_sources(
     "pb_ds"
     PRIVATE
         "pb_ds.cpp"
-        "basic.hpp"
+        "common.hpp"
         "timer.hpp"
         "helpers.hpp"
 )
@@ -141,6 +141,31 @@ target_sources(
         "helpers.hpp"
 )
 target_link_libraries("trie" PRIVATE "libc++")
+
+add_executable("sparsest")
+target_sources(
+    "sparsest"
+    PRIVATE
+        "sparsest.cpp"
+        "io.hpp"
+        "timer.hpp"
+        "helpers.hpp"
+)
+target_link_libraries(
+    "sparsest"
+    PRIVATE
+        "libc++"
+        $<$<BOOL:OpenMP_CXX_FOUND>:OpenMP::OpenMP_CXX>
+)
+target_compile_options(
+    "sparsest"
+    PRIVATE
+        "-mcmodel=medium"
+)
+target_compile_definitions(
+    "sparsest"
+    PRIVATE
+        "_FILE_OFFSET_BITS=64")
 
 add_executable("oaph")
 target_sources(

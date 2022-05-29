@@ -5,15 +5,29 @@
 #include <fmt/format.h>
 
 #include <iterator>
+#include <memory>
 
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
 
-inline std::size_t readInput(char * inputBegin, std::size_t inputSize,
-                             std::FILE * inputFile)
+using File = std::unique_ptr<std::FILE, decltype((std::fclose))>;
+
+inline File wrapFile(std::FILE * file)
 {
-    std::size_t readSize = std::fread(inputBegin, 1, inputSize, inputFile);
+    return {file, std::fclose};
+}
+
+inline File openFile(const char * filename, const char * modes)
+{
+    return wrapFile(std::fopen(filename, modes));
+}
+
+inline std::size_t readInput(char * inputBegin, std::size_t inputSize,
+                             const File & inputFile)
+{
+    std::size_t readSize =
+        std::fread(inputBegin, 1, inputSize, inputFile.get());
     fmt::print(stderr, "input size = {} bytes\n", readSize);
     if (!(readSize < inputSize)) {
         fmt::print(stderr, "input is too large\n");
@@ -37,8 +51,8 @@ class OutputStream
     static_assert(bufferSize > 0, "!");
 
 public:
-    OutputStream(std::FILE * outputFile)
-        : outputFile{outputFile}
+    OutputStream(const File & outputFile)
+        : outputFile{outputFile.get()}
     {
         assert(outputFile);
     }

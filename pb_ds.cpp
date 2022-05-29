@@ -1,4 +1,4 @@
-#include "basic.hpp"
+#include "common.hpp"
 
 #include <ext/pb_ds/assoc_container.hpp>
 #include <ext/pb_ds/tag_and_trait.hpp>
@@ -12,5 +12,5 @@ using Trie =
 
 int main(int argc, char * argv[])
 {
-    return basic<Trie, /* kIsOrdered */ true>(argc, argv);
+    return count_words<Trie, /* kIsOrdered */ true>(argc, argv);
 }

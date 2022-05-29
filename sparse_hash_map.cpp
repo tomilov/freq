@@ -1,4 +1,4 @@
-#include "basic.hpp"
+#include "common.hpp"
 
 #if __has_include(<sparsehash/sparse_hash_map>)
 #include <sparsehash/sparse_hash_map>
@@ -10,5 +10,5 @@
 
 int main(int argc, char * argv[])
 {
-    return basic<google::sparse_hash_map>(argc, argv);
+    return count_words<google::sparse_hash_map>(argc, argv);
 }

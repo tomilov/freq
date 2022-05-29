@@ -18,7 +18,7 @@
 #define FORCEINLINE __attribute__((always_inline))
 #define LIKELY(x) (__builtin_expect((x), 1))
 #define UNLIKELY(x) (__builtin_expect((x), 0))
-#define UNPREDICTABLE(x) (__builtin_unpredictable(x))
+#define UNPREDICTABLE(x) (__builtin_expect_with_probability(x, 0, 0.5))
 #define BSF(index, mask) index = decltype(index)(__bsfd(mask))
 #else
 #error "!"
