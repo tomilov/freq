@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <cstdlib>
 
-template<template<typename...> class Map, bool kIsOrdered = false,
+template<template<typename...> typename Map, bool kIsOrdered = false,
          bool kSetEmptyKey = false>
 int basic(int argc, char * argv[])
 {
@@ -65,7 +65,7 @@ int basic(int argc, char * argv[])
     auto end = std::next(input.data(), input.size());
     auto beg = std::find_if(input.data(), end, isAlpha);
     while (beg != end) {
-        auto it = std::find_if(beg, end, std::not_fn(isAlpha));
+        auto it = std::find_if_not(beg, end, isAlpha);
         ++wordCounts[{beg, std::size_t(std::distance(beg, it))}];
         beg = std::find_if(it, end, isAlpha);
     }

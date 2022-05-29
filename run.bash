@@ -37,23 +37,23 @@ NPROC="$( nproc )"
 if ! WORKSPACE="$( mktemp -d --tmpdir 'freq.XXXXXX' )"
 then
     >&2 echo "Unable to create temporary directory"
-    exit 7
+    exit 6
 fi
 
 function on_exit {
     set +e
     set -v
-    popd
+    popd >/dev/null
 
     if [[ $( cat /sys/devices/system/cpu/smt/control ) == "off" ]]
     then
-        sudo sh -c 'echo on >/sys/devices/system/cpu/smt/control'
+        echo on | sudo tee /sys/devices/system/cpu/smt/control >/dev/null
     fi
-    if command -v tuna
+    if command -v tuna >/dev/null
     then
-        sudo sh -c "tuna --cpus=0-$NPROC --include"
+        sudo tuna --cpus=0-$NPROC --include
     fi
-    echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+    echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
 
     rm -r "$WORKSPACE"
 }
@@ -62,16 +62,16 @@ trap on_exit EXIT
 cp -a pg.txt "$WORKSPACE"
 pushd "$WORKSPACE"
 
-echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
 if [[ NPROC > 1 ]]
 then
     if [[ $( cat /sys/devices/system/cpu/smt/control ) == "on" ]]
     then
-        sudo sh -c 'echo off >/sys/devices/system/cpu/smt/control'
+        echo off | sudo tee /sys/devices/system/cpu/smt/control >/dev/null
     fi
-    if command -v tuna
+    if command -v tuna >/dev/null
     then
-        sudo sh -c "tuna --cpus=1-$NPROC --isolate"
+        sudo tuna --cpus=1-$NPROC --isolate
     fi
 fi
 

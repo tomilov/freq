@@ -142,6 +142,31 @@ target_sources(
 )
 target_link_libraries("trie" PRIVATE "libc++")
 
+add_executable("sparsest")
+target_sources(
+    "sparsest"
+    PRIVATE
+        "sparsest.cpp"
+        "io.hpp"
+        "timer.hpp"
+        "helpers.hpp"
+)
+target_link_libraries(
+    "sparsest"
+    PRIVATE
+        "libc++"
+        $<$<BOOL:OpenMP_CXX_FOUND>:OpenMP::OpenMP_CXX>
+)
+target_compile_options(
+    "sparsest"
+    PRIVATE
+        "-mcmodel=medium"
+)
+target_compile_definitions(
+    "sparsest"
+    PRIVATE
+        "_FILE_OFFSET_BITS=64")
+
 add_executable("oaph")
 target_sources(
     "oaph"

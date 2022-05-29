@@ -194,7 +194,7 @@ static void findPerfectHash()
         uint32_t iterationCount = 0;
         std::size_t maxPrefix = 0;
         std::unordered_set<uint32_t> hashesFull;
-        std::vector<uint8_t> hashesLow;
+        std::vector<uint8_t> hashesLowPopCnt;
 #pragma omp for schedule(static, 1)
         for (int32_t initialChecksum = 0;
              initialChecksum < std::numeric_limits<int32_t>::max();
@@ -214,12 +214,12 @@ static void findPerfectHash()
             }
             uint8_t collision = 0;
             if (!kEnableOpenAddressing && !bad) {
-                hashesLow.resize(std::size_t(1) << hashTableOrder);
+                hashesLowPopCnt.resize(std::size_t(1) << hashTableOrder);
                 std::size_t prefix = 0;
                 for (uint32_t hash : hashesFull) {
                     ++prefix;
-                    collision =
-                        std::max(collision, ++hashesLow[hash & hashTableMask]);
+                    collision = std::max(
+                        collision, ++hashesLowPopCnt[hash & hashTableMask]);
                     if (collision > maxCollisions) {
                         bad = true;
                         break;
@@ -228,7 +228,7 @@ static void findPerfectHash()
                 if (prefix > maxPrefix) {
                     maxPrefix = prefix;
                 }
-                hashesLow.clear();
+                hashesLowPopCnt.clear();
             }
             hashesFull.clear();
             if (!bad) {
@@ -265,24 +265,24 @@ int main(int argc, char * argv[])
 
     using namespace std::string_view_literals;
 
-    std::unique_ptr<std::FILE, decltype((std::fclose))> inputFile{
-        (argv[1] == "-"sv) ? stdin : std::fopen(argv[1], "rb"), std::fclose};
+    auto inputFile =
+        (argv[1] == "-"sv) ? wrapFile(stdin) : openFile(argv[1], "rb");
     if (!inputFile) {
         fmt::print(stderr, "failed to open '{}' file to read\n", argv[1]);
         return EXIT_FAILURE;
     }
 
-    std::unique_ptr<std::FILE, decltype((std::fclose))> outputFile{
-        (argv[2] == "-"sv) ? stdout : std::fopen(argv[2], "wb"), std::fclose};
+    auto outputFile =
+        (argv[2] == "-"sv) ? wrapFile(stdout) : openFile(argv[2], "wb");
     if (!outputFile) {
         fmt::print(stderr, "failed to open '{}' file to write\n", argv[2]);
         return EXIT_FAILURE;
     }
 
     std::size_t readSize =
-        readInput(std::begin(input), std::size(input), inputFile.get());
+        readInput(std::begin(input), std::size(input), inputFile);
     if (readSize == 0) {
-        return EXIT_FAILURE;
+        return EXIT_SUCCESS;
     }
     inputEnd += readSize;
     timer.report("read input");
@@ -339,7 +339,7 @@ int main(int argc, char * argv[])
     std::sort(std::begin(rank), std::end(rank), less);
     timer.report(fmt::format(fg(fmt::color::dark_orange), "sort words"));
 
-    OutputStream<> outputStream{outputFile.get()};
+    OutputStream<> outputStream{outputFile};
     for (const auto & [count, word] : rank) {
         if (!outputStream.print(count)) {
             fmt::print(stderr, "output failure\n");
