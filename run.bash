@@ -51,9 +51,9 @@ function on_exit {
     fi
     if command -v tuna >/dev/null
     then
-        sudo tuna --cpus=0-$NPROC --include
+        sudo -A tuna --cpus=0-$NPROC --include
     fi
-    echo powersave | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
+    echo powersave | sudo -A tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
 
     rm -r "$WORKSPACE"
 }
@@ -62,16 +62,16 @@ trap on_exit EXIT
 cp -a pg.txt "$WORKSPACE"
 pushd "$WORKSPACE"
 
-echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
+echo performance | sudo -A tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
 if [[ NPROC > 1 ]]
 then
     if [[ $( cat /sys/devices/system/cpu/smt/control ) == "on" ]]
     then
-        echo off | sudo tee /sys/devices/system/cpu/smt/control >/dev/null
+        echo off | sudo -A tee /sys/devices/system/cpu/smt/control >/dev/null
     fi
     if command -v tuna >/dev/null
     then
-        sudo tuna --cpus=1-$NPROC --isolate
+        sudo -A tuna --cpus=1-$NPROC --isolate
     fi
 fi
 
