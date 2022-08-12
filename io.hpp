@@ -51,8 +51,7 @@ class OutputStream
     static_assert(bufferSize > 0, "!");
 
 public:
-    OutputStream(const File & outputFile)
-        : outputFile{outputFile.get()}
+    OutputStream(const File & outputFile) : outputFile{outputFile.get()}
     {
         assert(outputFile);
     }

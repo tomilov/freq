@@ -22,7 +22,7 @@
 
 template<template<typename...> typename Map, bool kIsOrdered = false,
          bool kSetEmptyKey = false>
-int count_words(int argc, char * argv[])
+int countWords(int argc, char * argv[])
 {
     Timer timer{fmt::format(fg(fmt::color::dark_green), "total")};
 

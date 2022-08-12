@@ -8,6 +8,7 @@ find_package(absl)
 find_package(folly)
 find_package(gflags)
 find_package(fmt)
+find_package(tsl-robin-map)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
@@ -21,7 +22,7 @@ add_library("libstdc++" INTERFACE)
 target_compile_options("libstdc++" INTERFACE $<$<CXX_COMPILER_ID:Clang>:-stdlib=libstdc++>)
 target_link_options("libstdc++" INTERFACE $<$<CXX_COMPILER_ID:Clang>:-stdlib=libstdc++>)
 
-link_libraries(fmt::fmt)
+link_libraries(fmt::fmt-header-only)
 
 add_executable("unordered_map")
 target_sources(
@@ -118,6 +119,26 @@ if(TARGET absl::flat_hash_map)
     )
 else()
     message(STATUS "Target absl disabled")
+endif()
+
+if(TARGET tsl::robin_map)
+    add_executable("robin_map")
+    target_sources(
+        "robin_map"
+        PRIVATE
+            "robin_map.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries(
+        "robin_map"
+        PRIVATE
+            "libc++"
+            tsl::robin_map
+    )
+else()
+    message(STATUS "Target robin_map disabled")
 endif()
 
 add_executable("pb_ds")

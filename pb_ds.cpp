@@ -12,5 +12,5 @@ using Trie =
 
 int main(int argc, char * argv[])
 {
-    return count_words<Trie, /* kIsOrdered */ true>(argc, argv);
+    return countWords<Trie, /* kIsOrdered */ true>(argc, argv);
 }

@@ -12,13 +12,13 @@
 struct Timer
 {
     std::string onScopeExit = "total";
-    const std::chrono::high_resolution_clock::time_point start =
-        std::chrono::high_resolution_clock::now();
-    std::chrono::high_resolution_clock::time_point timePoint = start;
+    const std::chrono::steady_clock::time_point start =
+        std::chrono::steady_clock::now();
+    std::chrono::steady_clock::time_point timePoint = start;
 
     auto dt(bool absolute = false)
     {
-        auto stop = std::chrono::high_resolution_clock::now();
+        auto stop = std::chrono::steady_clock::now();
         return std::chrono::duration_cast<std::chrono::nanoseconds>(
                    stop - (absolute ? start : std::exchange(timePoint, stop)))
                    .count() *

@@ -10,6 +10,6 @@
 
 int main(int argc, char * argv[])
 {
-    return count_words<google::dense_hash_map, /* kIsOrdered */ false,
-                       /* kSetEmptyKey */ true>(argc, argv);
+    return countWords<google::dense_hash_map, /* kIsOrdered */ false,
+                      /* kSetEmptyKey */ true>(argc, argv);
 }

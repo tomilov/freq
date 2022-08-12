@@ -4,5 +4,5 @@
 
 int main(int argc, char * argv[])
 {
-    return count_words<std::unordered_map>(argc, argv);
+    return countWords<std::unordered_map>(argc, argv);
 }

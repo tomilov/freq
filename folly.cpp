@@ -4,5 +4,5 @@
 
 int main(int argc, char * argv[])
 {
-    return count_words<folly::F14ValueMap>(argc, argv);
+    return countWords<folly::F14ValueMap>(argc, argv);
 }

@@ -10,5 +10,5 @@
 
 int main(int argc, char * argv[])
 {
-    return count_words<google::sparse_hash_map>(argc, argv);
+    return countWords<google::sparse_hash_map>(argc, argv);
 }
