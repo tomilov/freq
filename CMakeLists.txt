@@ -46,8 +46,8 @@ target_sources(
 )
 target_link_libraries("unordered_map_libstdc++" PRIVATE "libstdc++")
 
-CHECK_INCLUDE_FILE_CXX("google/dense_hash_map" google_dense_hash_map_FOUND)
-CHECK_INCLUDE_FILE_CXX("sparse_hash_map/dense_hash_map" sparse_hash_map_dense_hash_map_FOUND)
+check_include_file_cxx("google/dense_hash_map" google_dense_hash_map_FOUND)
+check_include_file_cxx("sparse_hash_map/dense_hash_map" sparse_hash_map_dense_hash_map_FOUND)
 if(google_dense_hash_map_FOUND OR sparse_hash_map_dense_hash_map_FOUND)
     add_executable("dense_hash_map")
     target_sources(
@@ -63,8 +63,8 @@ else()
     message(STATUS "Target dense_hash_map disabled")
 endif()
 
-CHECK_INCLUDE_FILE_CXX("google/sparse_hash_map" google_sparse_hash_map_FOUND)
-CHECK_INCLUDE_FILE_CXX("sparse_hash_map/sparse_hash_map" sparse_hash_map_sparse_hash_map_FOUND)
+check_include_file_cxx("google/sparse_hash_map" google_sparse_hash_map_FOUND)
+check_include_file_cxx("sparse_hash_map/sparse_hash_map" sparse_hash_map_sparse_hash_map_FOUND)
 if(google_sparse_hash_map_FOUND OR sparse_hash_map_sparse_hash_map_FOUND)
     add_executable("sparse_hash_map")
     target_sources(
@@ -141,6 +141,22 @@ else()
     message(STATUS "Target robin_map disabled")
 endif()
 
+check_include_file_cxx("sparsepp/spp.h" sparsepp_FOUND)
+if(sparsepp_FOUND)
+    add_executable("spp")
+    target_sources(
+        "spp"
+        PRIVATE
+            "spp.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries("spp" PRIVATE "libc++")
+else()
+    message(STATUS "Target spp disabled")
+endif()
+
 add_executable("pb_ds")
 target_sources(
     "pb_ds"
@@ -203,4 +219,3 @@ target_link_libraries(
         "libc++"
         $<$<BOOL:OpenMP_CXX_FOUND>:OpenMP::OpenMP_CXX>
 )
-

@@ -66,7 +66,7 @@ int countWords(int argc, char * argv[])
     auto beg = std::find_if(input.data(), end, isAlpha);
     while (beg != end) {
         auto it = std::find_if_not(beg, end, isAlpha);
-        ++wordCounts[{beg, std::size_t(std::distance(beg, it))}];
+        ++wordCounts[std::string_view{beg, std::size_t(std::distance(beg, it))}];
         beg = std::find_if(it, end, isAlpha);
     }
 
