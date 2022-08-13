@@ -141,6 +141,7 @@ else()
     message(STATUS "Target robin_map disabled")
 endif()
 
+include_directories(../sparsepp)
 check_include_file_cxx("sparsepp/spp.h" sparsepp_FOUND)
 if(sparsepp_FOUND)
     add_executable("spp")
@@ -172,6 +173,23 @@ if(emilib_FOUND)
     target_link_libraries("emilib" PRIVATE "libc++")
 else()
     message(STATUS "Target emilib disabled")
+endif()
+
+include_directories(../flat_hash_map)
+check_include_file_cxx("flat_hash_map.hpp" flat_hash_map_FOUND)
+if(flat_hash_map_FOUND)
+    add_executable("ska")
+    target_sources(
+        "ska"
+        PRIVATE
+            "ska.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries("ska" PRIVATE "libc++")
+else()
+    message(STATUS "Target ska disabled")
 endif()
 
 add_executable("pb_ds")
