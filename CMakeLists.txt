@@ -157,6 +157,23 @@ else()
     message(STATUS "Target spp disabled")
 endif()
 
+include_directories(../emilib)
+check_include_file_cxx("emilib/hash_map.h" emilib_FOUND)
+if(emilib_FOUND)
+    add_executable("emilib")
+    target_sources(
+        "emilib"
+        PRIVATE
+            "emilib.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries("emilib" PRIVATE "libc++")
+else()
+    message(STATUS "Target emilib disabled")
+endif()
+
 add_executable("pb_ds")
 target_sources(
     "pb_ds"
