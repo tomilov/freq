@@ -12,6 +12,7 @@ find_package(tsl-robin-map)
 find_package(tsl-ordered-map)
 find_package(tsl-array-hash)
 find_package(tsl-hopscotch-map)
+find_package(tsl-sparse-map)
 find_package(
     Boost
     COMPONENTS
@@ -206,6 +207,26 @@ if(TARGET tsl::hopscotch_map)
     )
 else()
     message(STATUS "Target hopscotch_map disabled")
+endif()
+
+if(TARGET tsl::sparse_map)
+    add_executable("sparse_map")
+    target_sources(
+        "sparse_map"
+        PRIVATE
+            "sparse_map.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries(
+        "sparse_map"
+        PRIVATE
+            "libc++"
+            tsl::sparse_map
+    )
+else()
+    message(STATUS "Target sparse_map disabled")
 endif()
 
 if(TARGET Boost::headers)
