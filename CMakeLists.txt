@@ -9,6 +9,7 @@ find_package(folly)
 find_package(gflags)
 find_package(fmt)
 find_package(tsl-robin-map)
+find_package(tsl-ordered-map)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
@@ -139,6 +140,26 @@ if(TARGET tsl::robin_map)
     )
 else()
     message(STATUS "Target robin_map disabled")
+endif()
+
+if(TARGET tsl::ordered_map)
+    add_executable("ordered_map")
+    target_sources(
+        "ordered_map"
+        PRIVATE
+            "ordered_map.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries(
+        "ordered_map"
+        PRIVATE
+            "libc++"
+            tsl::ordered_map
+    )
+else()
+    message(STATUS "Target ordered_map disabled")
 endif()
 
 include_directories(../sparsepp)
