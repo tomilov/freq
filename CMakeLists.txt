@@ -10,6 +10,12 @@ find_package(gflags)
 find_package(fmt)
 find_package(tsl-robin-map)
 find_package(tsl-ordered-map)
+find_package(tsl-array-hash)
+find_package(tsl-hopscotch-map)
+find_package(
+    Boost
+    COMPONENTS
+        unordered_map)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED YES)
@@ -160,6 +166,66 @@ if(TARGET tsl::ordered_map)
     )
 else()
     message(STATUS "Target ordered_map disabled")
+endif()
+
+if(TARGET tsl::array_hash)
+    add_executable("array_hash")
+    target_sources(
+        "array_hash"
+        PRIVATE
+            "array_hash.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries(
+        "array_hash"
+        PRIVATE
+            "libc++"
+            tsl::array_hash
+    )
+else()
+    message(STATUS "Target array_hash disabled")
+endif()
+
+if(TARGET tsl::hopscotch_map)
+    add_executable("hopscotch_map")
+    target_sources(
+        "hopscotch_map"
+        PRIVATE
+            "hopscotch_map.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries(
+        "hopscotch_map"
+        PRIVATE
+            "libc++"
+            tsl::hopscotch_map
+    )
+else()
+    message(STATUS "Target hopscotch_map disabled")
+endif()
+
+if(TARGET Boost::headers)
+    add_executable("boost")
+    target_sources(
+        "boost"
+        PRIVATE
+            "boost.cpp"
+            "common.hpp"
+            "timer.hpp"
+            "helpers.hpp"
+    )
+    target_link_libraries(
+        "boost"
+        PRIVATE
+            "libc++"
+            Boost::headers
+    )
+else()
+    message(STATUS "Target boost disabled")
 endif()
 
 include_directories(../sparsepp)
