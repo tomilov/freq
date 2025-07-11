@@ -8,7 +8,7 @@ LINKER ?= $(shell which lld)
 C_COMPILER ?= $(shell which clang)
 C_FLAGS ?= -march=native
 CXX_COMPILER ?= $(shell which clang++)
-CXX_FLAGS ?= -march=native
+CXX_FLAGS ?= -march=native -stdlib=libc++
 TIMES ?= 3
 TARGET ?= oaph
 

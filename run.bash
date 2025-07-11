@@ -1,6 +1,6 @@
 #! /usr/bin/bash
 
-set -e
+set -ueo pipefail
 
 if [[ ! -f pg.txt ]]
 then
@@ -40,6 +40,8 @@ then
     exit 6
 fi
 
+sudo -A true
+
 function on_exit {
     set +e
     set -v
@@ -51,7 +53,7 @@ function on_exit {
     fi
     if command -v tuna >/dev/null
     then
-        sudo -A tuna --cpus=0-$NPROC --include
+        sudo -A tuna include --cpus=0-$NPROC
     fi
     echo powersave | sudo -A tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor >/dev/null
 
@@ -71,7 +73,7 @@ then
     fi
     if command -v tuna >/dev/null
     then
-        sudo -A tuna --cpus=1-$NPROC --isolate
+        sudo -A tuna isolate --cpus=1-$NPROC
     fi
 fi
 

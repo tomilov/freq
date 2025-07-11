@@ -11,11 +11,11 @@
 #include <cstdio>
 #include <cstdlib>
 
-using File = std::unique_ptr<std::FILE, decltype((std::fclose))>;
+using File = std::unique_ptr<std::FILE, decltype(&std::fclose)>;
 
 inline File wrapFile(std::FILE * file)
 {
-    return {file, std::fclose};
+    return {file, &std::fclose};
 }
 
 inline File openFile(const char * filename, const char * modes)
